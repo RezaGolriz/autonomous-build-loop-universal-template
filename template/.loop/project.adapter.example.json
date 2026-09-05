@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "adapter_id": "replace-me",
+  "project_kind": "cli",
+  "target": {
+    "languages": ["replace-me"],
+    "runtimes": ["replace-me"],
+    "platforms": ["replace-me"]
+  },
+  "artifacts": [
+    {"id": "primary", "kind": "executable", "paths": ["replace-me"]}
+  ],
+  "commands": [
+    {"id": "verify", "phase": "VALIDATE", "cwd": ".", "argv": ["replace-me"], "timeout_seconds": 300, "evidence_types": ["acceptance", "command"]}
+  ],
+  "validation": {"required_evidence": ["acceptance", "command"]},
+  "protected_paths": [".loop/**", "replace-with-toolchain-and-test-config-paths"],
+  "environment": {"allow_names": ["PATH"]}
+}

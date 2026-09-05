@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile_id": "desktop-v1",
+  "project_kind": "desktop",
+  "suggested_artifact_kinds": ["executable", "package"],
+  "required_validation_evidence": ["acceptance", "command", "behavior", "installation"]
+}

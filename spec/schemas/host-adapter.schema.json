@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/host-adapter.schema.json",
+  "title": "Agent host adapter v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "host_id", "process_model", "owns_transitions", "trust_anchor", "capabilities"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "host_id": {"enum": ["codex", "claude"]},
+    "process_model": {"enum": ["fresh-process-per-node", "session-with-fresh-subagents"]},
+    "owns_transitions": {"const": false},
+    "trust_anchor": {"const": "supervisor-process-and-filesystem-capture"},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh_context", "read_only_review", "structured_result"],
+      "properties": {
+        "fresh_context": {"type": "boolean"},
+        "read_only_review": {"type": "boolean"},
+        "structured_result": {"type": "boolean"}
+      }
+    }
+  }
+}

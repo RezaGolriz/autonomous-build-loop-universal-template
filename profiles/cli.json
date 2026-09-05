@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile_id": "cli-v1",
+  "project_kind": "cli",
+  "suggested_artifact_kinds": ["executable"],
+  "required_validation_evidence": ["acceptance", "command", "behavior", "installation"]
+}

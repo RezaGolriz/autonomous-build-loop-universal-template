@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile_id": "automation-v1",
+  "project_kind": "automation",
+  "suggested_artifact_kinds": ["executable", "service"],
+  "required_validation_evidence": ["acceptance", "command", "behavior"]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/node.schema.json",
+  "title": "Bounded node contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "node_id", "gate_id", "work_item_id", "phase", "trigger", "task", "actor_capability", "success_condition", "verifier_ids", "input_artifacts", "output_artifacts", "allowed_paths", "frozen_paths", "retry_cap", "escalation_target"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "node_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "gate_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "phase": {"enum": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
+    "trigger": {"type": "string", "minLength": 1},
+    "task": {"type": "string", "minLength": 1},
+    "actor_capability": {"type": "string", "minLength": 1},
+    "success_condition": {"type": "string", "minLength": 1},
+    "verifier_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "input_artifacts": {"$ref": "#/$defs/paths"},
+    "output_artifacts": {"$ref": "#/$defs/paths"},
+    "allowed_paths": {"$ref": "#/$defs/nonempty_paths"},
+    "frozen_paths": {"$ref": "#/$defs/paths"},
+    "retry_cap": {"type": "integer", "minimum": 1, "maximum": 20},
+    "escalation_target": {"enum": ["human", "DEFINE", "DESIGN", "EXECUTE"]}
+  },
+  "$defs": {
+    "paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "nonempty_paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

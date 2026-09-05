@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/state.schema.json",
+  "title": "Durable loop state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "work_item_id", "phase", "run_status", "step", "round", "max_rounds", "gate_failures_here", "max_gate_failures", "autonomy", "gates", "last_result", "next_action", "updated_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "phase": {"enum": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
+    "run_status": {"enum": ["PAUSED", "RUNNING", "BLOCKED", "WAITING_FOR_HUMAN", "COMPLETED", "CANCELLED"]},
+    "step": {"type": "string", "minLength": 1},
+    "round": {"type": "integer", "minimum": 0},
+    "max_rounds": {"type": "integer", "minimum": 1},
+    "gate_failures_here": {"type": "integer", "minimum": 0},
+    "max_gate_failures": {"type": "integer", "minimum": 1},
+    "started_epoch": {"type": "integer", "minimum": 0},
+    "max_wall_seconds": {"type": "integer", "minimum": 1},
+    "autonomy": {"enum": ["supervised", "guarded", "autonomous"]},
+    "gates": {"$ref": "#/$defs/gates"},
+    "last_result": {"type": "string"},
+    "next_action": {"type": "string", "minLength": 1},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [{"if": {"properties": {"run_status": {"const": "RUNNING"}}, "required": ["run_status"]}, "then": {"required": ["started_epoch", "max_wall_seconds"]}}],
+  "$defs": {
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence_ids"],
+      "properties": {
+        "status": {"enum": ["PENDING", "PASSED", "FAILED", "NOT_APPLICABLE"]},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "review_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence_ids"],
+      "properties": {
+        "status": {"enum": ["PENDING", "PASSED", "FAILED"]},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"],
+      "properties": {
+        "DEFINE": {"$ref": "#/$defs/gate"},
+        "DESIGN": {"$ref": "#/$defs/gate"},
+        "EXECUTE": {"$ref": "#/$defs/gate"},
+        "REVIEW": {"$ref": "#/$defs/review_gate"},
+        "VALIDATE": {"$ref": "#/$defs/gate"},
+        "HANDOVER": {"$ref": "#/$defs/gate"}
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "adapter_id": "cli-v1",
+  "project_kind": "cli",
+  "target": {"languages": ["any"], "runtimes": [], "platforms": ["any"]},
+  "artifacts": [{"id": "cli-artifact", "kind": "executable", "paths": ["bin/tool"]}],
+  "protected_paths": ["core/**"],
+  "commands": [{"id": "verify", "phase": "VALIDATE", "cwd": ".", "argv": ["project-verifier"], "timeout_seconds": 60}],
+  "validation": {"required_evidence": ["acceptance"]},
+  "framework": "must-not-be-in-the-workflow-profile"
+}

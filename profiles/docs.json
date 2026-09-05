@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile_id": "docs-v1",
+  "project_kind": "docs",
+  "suggested_artifact_kinds": ["document-set"],
+  "required_validation_evidence": ["acceptance", "documentation", "link-check"]
+}

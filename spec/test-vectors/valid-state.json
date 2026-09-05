@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "work_item_id": "WI-001",
+  "phase": "DEFINE",
+  "run_status": "PAUSED",
+  "step": "write-contract",
+  "round": 0,
+  "max_rounds": 40,
+  "gate_failures_here": 0,
+  "max_gate_failures": 3,
+  "autonomy": "supervised",
+  "gates": {
+    "DEFINE": {"status": "PENDING", "evidence_ids": []},
+    "DESIGN": {"status": "PENDING", "evidence_ids": []},
+    "EXECUTE": {"status": "PENDING", "evidence_ids": []},
+    "REVIEW": {"status": "PENDING", "evidence_ids": []},
+    "VALIDATE": {"status": "PENDING", "evidence_ids": []},
+    "HANDOVER": {"status": "PENDING", "evidence_ids": []}
+  },
+  "last_result": "Work item selected.",
+  "next_action": "Produce a testable work-item contract.",
+  "updated_at": "2026-01-01T00:00:00Z"
+}

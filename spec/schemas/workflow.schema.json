@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/workflow.schema.json",
+  "title": "Universal workflow v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workflow_id", "phases", "green_transitions", "rework_transitions", "mandatory_independent_review"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "workflow_id": {"const": "universal-v1"},
+    "phases": {"const": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
+    "green_transitions": {
+      "const": [
+        {"from": "DEFINE", "to": "DESIGN"},
+        {"from": "DESIGN", "to": "EXECUTE"},
+        {"from": "EXECUTE", "to": "EXECUTE"},
+        {"from": "EXECUTE", "to": "REVIEW"},
+        {"from": "REVIEW", "to": "VALIDATE"},
+        {"from": "VALIDATE", "to": "HANDOVER"}
+      ]
+    },
+    "rework_transitions": {
+      "const": [
+        {"from": "DESIGN", "to": "DEFINE", "defect_class": "requirement"},
+        {"from": "REVIEW", "to": "DEFINE", "defect_class": "requirement"},
+        {"from": "REVIEW", "to": "DESIGN", "defect_class": "design"},
+        {"from": "REVIEW", "to": "EXECUTE", "defect_class": "artifact"},
+        {"from": "VALIDATE", "to": "DEFINE", "defect_class": "requirement"},
+        {"from": "VALIDATE", "to": "DESIGN", "defect_class": "design"},
+        {"from": "VALIDATE", "to": "EXECUTE", "defect_class": "artifact"}
+      ]
+    },
+    "mandatory_independent_review": {"const": true}
+  }
+}

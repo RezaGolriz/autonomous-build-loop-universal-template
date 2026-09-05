@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "adapter_id": "docs-only-fixture",
+  "project_kind": "docs",
+  "target": {"languages": [], "runtimes": ["sh"], "platforms": ["test-host"]},
+  "artifacts": [{"id": "guide", "kind": "document-set", "paths": ["docs/**"]}],
+  "commands": [{"id": "docs-check", "phase": "VALIDATE", "cwd": ".", "argv": ["tests/check-docs.sh"], "timeout_seconds": 10, "evidence_types": ["command", "documentation", "link-check"]}],
+  "validation": {"required_evidence": ["documentation", "link-check"]},
+  "protected_paths": ["project.adapter.json", ".loop/**"],
+  "environment": {"allow_names": ["PATH", "LANG", "LC_ALL", "TMPDIR"]}
+}

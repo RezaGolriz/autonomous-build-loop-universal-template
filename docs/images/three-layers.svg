@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420" role="img" aria-labelledby="title desc">
+  <title id="title">Three separate layers of the Universal Autonomous Build Loop</title>
+  <desc id="desc">The fixed workflow is at the center. Project technology and the host engine can change independently.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="420" rx="28" fill="url(#bg)"/>
+  <text x="500" y="48" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#172554">One process for many kinds of software</text>
+  <g filter="url(#shadow)">
+    <rect x="60" y="100" width="270" height="220" rx="22" fill="#ffffff" stroke="#7c3aed" stroke-width="3"/>
+    <rect x="365" y="100" width="270" height="220" rx="22" fill="#ffffff" stroke="#2563eb" stroke-width="3"/>
+    <rect x="670" y="100" width="270" height="220" rx="22" fill="#ffffff" stroke="#059669" stroke-width="3"/>
+  </g>
+  <text x="195" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#5b21b6">Project</text>
+  <text x="195" y="178" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#334155">CLI · API · Desktop</text>
+  <text x="195" y="205" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#334155">Library · Data/AI · Docs</text>
+  <text x="195" y="250" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">Technology is chosen</text>
+  <text x="195" y="274" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">during initialization</text>
+  <text x="500" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#1d4ed8">Fixed workflow</text>
+  <text x="500" y="184" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#334155">DEFINE → DESIGN</text>
+  <text x="500" y="212" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#334155">EXECUTE → REVIEW</text>
+  <text x="500" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#334155">VALIDATE → HANDOVER</text>
+  <text x="500" y="282" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">always stays the same</text>
+  <text x="805" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#047857">Host / engine</text>
+  <text x="805" y="184" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#334155">Codex or Claude</text>
+  <text x="805" y="212" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#334155">runs controlled steps</text>
+  <text x="805" y="250" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">Current reference:</text>
+  <text x="805" y="274" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">Bash + jq on Unix</text>
+  <path d="M330 210 H365" stroke="#94a3b8" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M635 210 H670" stroke="#94a3b8" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="500" y="378" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="600" fill="#334155">The layers work together without locking each other in.</text>
+</svg>

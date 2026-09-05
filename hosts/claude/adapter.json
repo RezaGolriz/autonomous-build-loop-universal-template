@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "host_id": "claude",
+  "process_model": "session-with-fresh-subagents",
+  "owns_transitions": false,
+  "trust_anchor": "supervisor-process-and-filesystem-capture",
+  "capabilities": {
+    "fresh_context": true,
+    "read_only_review": true,
+    "structured_result": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "work_item_id": "WI-001",
+  "phase": "VALIDATE",
+  "run_status": "RUNNING",
+  "step": "acceptance",
+  "round": 4,
+  "max_rounds": 40,
+  "gate_failures_here": 0,
+  "max_gate_failures": 3,
+  "autonomy": "guarded",
+  "gates": {
+    "DEFINE": {"status": "PASSED", "evidence_ids": ["ev-define"]},
+    "DESIGN": {"status": "PASSED", "evidence_ids": ["ev-design"]},
+    "EXECUTE": {"status": "PASSED", "evidence_ids": ["ev-execute"]},
+    "REVIEW": {"status": "NOT_APPLICABLE", "evidence_ids": []},
+    "VALIDATE": {"status": "PENDING", "evidence_ids": []},
+    "HANDOVER": {"status": "PENDING", "evidence_ids": []}
+  },
+  "last_result": "Execution passed.",
+  "next_action": "Validate.",
+  "updated_at": "2026-01-01T00:00:00Z"
+}

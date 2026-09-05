@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "adapter_id": "python-cli-fixture",
+  "project_kind": "cli",
+  "target": {"languages": ["Python"], "runtimes": ["python3"], "platforms": ["test-host"]},
+  "artifacts": [{"id": "cli", "kind": "executable", "paths": ["src/greet.py"]}],
+  "commands": [{"id": "test", "phase": "VALIDATE", "cwd": ".", "argv": ["python3", "-B", "-m", "unittest", "discover", "-s", "tests", "-q"], "timeout_seconds": 30, "evidence_types": ["command", "behavior"]}],
+  "validation": {"required_evidence": ["command", "behavior"]},
+  "protected_paths": ["project.adapter.json", ".loop/**"],
+  "environment": {"allow_names": ["PATH", "LANG", "LC_ALL", "TMPDIR"]}
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile_id": "data-ai-v1",
+  "project_kind": "data-ai",
+  "suggested_artifact_kinds": ["package", "document-set"],
+  "required_validation_evidence": ["acceptance", "command", "artifact", "behavior"]
+}

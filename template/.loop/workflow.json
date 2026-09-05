@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "workflow_id": "universal-v1",
+  "phases": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"],
+  "green_transitions": [
+    {"from": "DEFINE", "to": "DESIGN"},
+    {"from": "DESIGN", "to": "EXECUTE"},
+    {"from": "EXECUTE", "to": "EXECUTE"},
+    {"from": "EXECUTE", "to": "REVIEW"},
+    {"from": "REVIEW", "to": "VALIDATE"},
+    {"from": "VALIDATE", "to": "HANDOVER"}
+  ],
+  "rework_transitions": [
+    {"from": "DESIGN", "to": "DEFINE", "defect_class": "requirement"},
+    {"from": "REVIEW", "to": "DEFINE", "defect_class": "requirement"},
+    {"from": "REVIEW", "to": "DESIGN", "defect_class": "design"},
+    {"from": "REVIEW", "to": "EXECUTE", "defect_class": "artifact"},
+    {"from": "VALIDATE", "to": "DEFINE", "defect_class": "requirement"},
+    {"from": "VALIDATE", "to": "DESIGN", "defect_class": "design"},
+    {"from": "VALIDATE", "to": "EXECUTE", "defect_class": "artifact"}
+  ],
+  "mandatory_independent_review": true
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/evidence.schema.json",
+  "title": "Evidence record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_id", "work_item_id", "phase", "evidence_type", "result", "producer", "revision", "environment", "captured_at", "artifacts", "details"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "phase": {"enum": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
+    "evidence_type": {"enum": ["acceptance", "command", "artifact", "behavior", "contract", "installation", "package", "documentation", "link-check", "independent-review"]},
+    "result": {"enum": ["PASSED", "FAILED", "BLOCKED"]},
+    "producer": {"type": "string", "minLength": 1},
+    "revision": {"type": "string", "minLength": 1},
+    "environment": {"type": "string", "minLength": 1},
+    "captured_at": {"type": "string", "format": "date-time"},
+    "artifacts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {"type": "string", "minLength": 1},
+        "command_evidence_id": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer"},
+        "verdict": {"enum": ["PASS", "FAIL"]},
+        "finding_count": {"type": "integer", "minimum": 0},
+        "observation": {"type": "string", "minLength": 1},
+        "criterion_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "gate_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "cwd": {"type": "string", "minLength": 1},
+        "started_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
+        "duration_milliseconds": {"type": "integer", "minimum": 0},
+        "stdout_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "stderr_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "adapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "node_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "environment_names": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"evidence_type": {"const": "independent-review"}}, "required": ["evidence_type"]},
+      "then": {"properties": {"phase": {"const": "REVIEW"}, "details": {"required": ["verdict", "finding_count"]}}}
+    },
+    {
+      "if": {"properties": {"evidence_type": {"const": "command"}}, "required": ["evidence_type"]},
+      "then": {"properties": {"details": {"required": ["command_id", "exit_code", "run_id", "gate_id", "argv", "cwd", "started_at", "finished_at", "duration_milliseconds", "stdout_sha256", "stderr_sha256", "adapter_sha256", "node_sha256", "environment_names"]}}}
+    }
+  ]
+}
