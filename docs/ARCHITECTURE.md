@@ -47,6 +47,24 @@ Command declarations use `cwd`, `argv`, and `timeout_seconds`. They are data for
 an executor adapter, not interpolated shell programs. Secrets never belong in a
 profile or command declaration.
 
+## Recommendation boundary
+
+`bootstrap/recommend.sh` is an advisory layer outside the workflow kernel. It
+performs a bounded read-only scan, ignores symlink targets, and uses file names
+plus a small allowlist of manifest fields. Its output is labeled as a
+recommendation and is preserved in initialization provenance.
+
+Recommendations never become authority. A human may accept or replace ordinary
+defaults, while inferred command arrays require the explicit token
+`USE-RECOMMENDED`. Supported platforms, unknown artifact paths, and the
+known-failing negative control remain manual. Discovery never executes project
+content and never changes the `PAUSED` activation boundary.
+
+Initialization also requires a completely clean template checkout. Its own
+script, the recommendation helper, and the reference engine are tracked and
+bound to template Git `HEAD`; modified or untracked template content blocks the
+pin instead of producing ambiguous provenance.
+
 ## Durable artifacts
 
 JSON is canonical for machine state, workflow, initialized project adapters,

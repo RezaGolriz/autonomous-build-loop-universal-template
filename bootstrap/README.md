@@ -1,13 +1,23 @@
 # Bootstrap protocol
 
-Bootstrap is outside the work-item loop and remains supervised.
+Bootstrap is outside the work-item loop and remains supervised. Before the
+interview, `recommend.sh` performs a bounded read-only scan of safe file names
+and allowlisted manifest fields. It prints labeled suggestions but never runs a
+discovered project command. Ordinary suggestions can be accepted with Enter;
+inferred command arrays require the literal `USE-RECOMMENDED`. Platforms and
+the negative control remain manual.
 
 Run `./bootstrap/init.sh /path/to/target` to conduct the interview and write
 `.loop/candidate/project.adapter.json`, `.loop/candidate/state.json`, recorded
-answers, and an activation checklist. Existing candidates are not overwritten.
+answers, structured recommendation provenance, and an activation checklist.
+Existing candidates are not overwritten.
 The script requests exact argv arrays and records environment variable names,
 never values. It does not run project commands, copy candidates to active names,
 or change state from `PAUSED`.
+
+The template checkout must be completely clean. The initializer binds itself,
+the recommendation helper, and the reference engine to the current Git `HEAD`;
+modified tracked files or any untracked files make initialization stop.
 
 1. Run the initialization interview in `template/INITIALIZATION.md`. Explicitly
    ask the human for project shape, programming language or `none`, runtime and
@@ -37,6 +47,6 @@ unknown schema version, placeholder, empty protected set, failed negative
 control or host mismatch blocks activation.
 
 The v1 reference control plane is version `0.1.0` and uses Bash 3+, jq, Git,
-shasum, find, awk, grep, and Perl on a Unix-like host. Pin the complete protocol and
+Perl, and standard Unix command-line utilities. Pin the complete protocol and
 engine repository to an immutable release or Git revision; pinning only this
 initializer is insufficient.

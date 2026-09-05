@@ -1,7 +1,13 @@
 # Required initialization interview
 
-Ask one question at a time, recommend an answer when repository evidence exists,
-and record the human-confirmed result in `.loop/project.adapter.json`.
+Ask one question at a time. First run the bounded read-only recommendation
+helper. Show its confidence and evidence, then let the human accept or replace
+ordinary suggestions. An inferred command requires the literal
+`USE-RECOMMENDED`; supported platforms and the negative control remain manual.
+Record recommendation provenance next to the human-confirmed adapter.
+Run this interview only from a clean template checkout so its Git `HEAD` binds
+the initializer, recommendation helper, and reference engine used to create the
+candidate. Modified or untracked template content blocks initialization.
 
 1. What kind of project is this: CLI, API, library, documentation, desktop,
    service, automation, data/AI, generic other, or a new profile that must be

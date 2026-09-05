@@ -37,19 +37,26 @@ the process itself dependent on Python or Java.
 
 ### 1. Get the template and run its checks
 
-The control host needs Git, Bash 3+, `jq`, `shasum`, `find`, `awk`, `grep`, and
-`perl`.
+The reference implementation needs a Unix-like control host with Git, Bash 3+,
+`jq`, Perl, and standard command-line utilities. The prerequisite check lists
+anything missing.
 
 ```bash
 git clone <repository-url>
 cd autonomous-build-loop-universal-template
 ./bootstrap/check-prerequisites.sh
+./tests/run-bootstrap-recommend.sh
 ./tests/run-conformance.sh
 ```
 
 Replace `<repository-url>` with the HTTPS or SSH URL shown by your Git host.
-The final command checks the same reference engine against both a Python CLI
-and a documentation-only project.
+The recommendation suite checks safe project discovery. The conformance suite
+checks the same reference engine against both a Python CLI and a
+documentation-only project.
+
+Run initialization only from a clean template checkout. If tracked files are
+modified or untracked files are present, the initializer stops because the Git
+revision would not identify all code involved in generating the candidate.
 
 The suite also proves that malformed configuration, missing tools, timeouts,
 unauthorized file changes, symlink escapes, changed evidence, and illegal state
@@ -69,6 +76,19 @@ The initializer asks you to choose:
 4. the build, package, and test tools;
 5. the platforms, artifacts, and exact verification commands;
 6. the evidence required for a successful run.
+
+Before asking, it safely inspects a bounded set of file names and known
+manifest fields. It then shows labeled recommendations with their confidence
+and basis. Press Enter to accept an ordinary recommendation, or type a
+replacement. Suggested command arrays are treated more carefully: the
+initializer shows the exact array but accepts it only after you type
+`USE-RECOMMENDED`. It never executes a discovered project command.
+
+Supported platforms and the known-failing negative control always require
+manual input. If the initializer cannot make a defensible artifact-path or
+command recommendation, it asks for one instead of inventing a value.
+
+![Safe initialization recommendation flow](docs/images/initialization-flow.svg)
 
 Example answers for a small project:
 
@@ -91,11 +111,14 @@ The candidate files are written to the target project:
 ├── project.adapter.json
 ├── state.json
 ├── initialization.answers
+├── initialization.provenance.json
 └── ACTIVATION-CHECKLIST.md
 ```
 
 Review the checklist next. The configuration remains `PAUSED` until a human has
 confirmed every command, boundary, and evidence requirement.
+`initialization.provenance.json` records what was recommended, what was accepted,
+and what was entered manually.
 
 ## The workflow for every task
 
