@@ -1,7 +1,81 @@
 # Universal Autonomous Build Loop
 
-A reusable foundation for planning, building, and verifying different kinds of
-software projects with the same controlled process.
+A technology-neutral workflow contract and reference control plane for bounded,
+AI-assisted software development with Codex, Claude, or another compatible
+agent. The AI produces work, the runner verifies claims, and a human controls
+activation and external actions.
+
+![AI development loop with agent, runner, independent review, and human control](docs/images/ai-development-loop.svg)
+
+## Why this repository exists
+
+AI coding agents can plan, write, test, and review software, but an agent's own
+success message is not proof that requirements were correct, the change is safe,
+or the result works in the target environment. Without a shared contract, each
+agent and technology stack can also drift into a different process.
+
+This repository puts a small, auditable control layer around AI-assisted
+development:
+
+- an AI agent produces the output required by one bounded node;
+- the runner executes configured checks and records structured evidence;
+- the workflow requires a fresh, independent review;
+- failed gates return work to the phase that owns the defect;
+- missing decisions become visible blockers instead of guesses;
+- merge, release, deployment, secrets, and destructive actions remain human
+  decisions.
+
+The goal is not to make AI infallible. The goal is to make its work bounded,
+repeatable, inspectable, and portable between projects.
+
+## Who does what?
+
+| Role | Responsibility | Boundary |
+|---|---|---|
+| AI worker — Codex or Claude | Reasons and creates the required artifact for one bounded node | Does not certify its own result or gain authority for external actions |
+| Runner / reference engine | Runs declared commands, captures evidence, checks selected path policies, and validates review verdicts | Does not write product code or deploy it |
+| Independent reviewer | Examines the exact change, contract, invariants, and evidence in a separate context | Cannot silently change acceptance criteria |
+| Human | Activates configuration, resolves blockers, and authorizes external actions | Cannot be bypassed by an autonomy setting |
+
+## How the AI development loop works
+
+A round is one bounded workflow node, not an entire project or an unlimited
+agent session. One work item moves through six mandatory phases:
+
+1. `DEFINE` turns the request into testable criteria, constraints, and explicit
+   exclusions.
+2. `DESIGN` defines boundaries, risks, interfaces, and independently provable
+   slices.
+3. `EXECUTE` lets the AI worker create the next declared artifact or slice.
+4. `REVIEW` requires an independent verdict about the exact durable change.
+5. `VALIDATE` requires project-specific acceptance and regression evidence.
+6. `HANDOVER` returns the revision, evidence, limitations, and next decision to
+   a human.
+
+```mermaid
+flowchart LR
+    A[DEFINE] --> B[DESIGN]
+    B --> C[EXECUTE]
+    C --> D[REVIEW]
+    D --> E[VALIDATE]
+    E --> F[HANDOVER]
+    D -. requirement defect .-> A
+    D -. design defect .-> B
+    D -. artifact defect .-> C
+    E -. requirement defect .-> A
+    E -. design defect .-> B
+    E -. artifact defect .-> C
+```
+
+A successful gate advances the work. A requirement defect returns to `DEFINE`,
+a design defect to `DESIGN`, and an artifact defect to `EXECUTE`. Work becomes
+`BLOCKED` when a required decision, capability, verifier, or authority is
+missing. Round, retry, and wall-clock caps prevent endless self-correction;
+reaching a cap produces `BLOCKED`, never success.
+
+Acceptance criteria and out-of-scope clauses are frozen while work is built and
+checked. This prevents an AI worker from making its task easier in order to pass
+its own gate.
 
 ![The fixed workflow is separated from the project technology and agent host](docs/images/three-layers.svg)
 
@@ -19,7 +93,7 @@ different kinds of projects, including:
 The project may use Python, Java, Go, Rust, C#, C++, Node.js, another
 technology, or no programming language at all.
 
-## The idea in plain language
+## Technology neutral by construction
 
 Think of a construction project:
 
@@ -28,12 +102,43 @@ Think of a construction project:
 - The **building materials** may change. In a software project, these are the
   language, runtime, tools, and target platform.
 - The **site manager's tools** may change too. The included reference engine
-  uses Bash and `jq` on a Unix-like system.
+  uses Bash, `jq`, Git, and Perl on a Unix-like system.
 
 A Python CLI and a Java API can therefore use the same process without making
 the process itself dependent on Python or Java.
 
-## Start in 5 minutes
+Profiles define the artifacts and evidence a project shape needs. Project
+adapters provide languages, runtimes, platforms, commands, and paths. Host
+adapters describe the capabilities required from Codex, Claude, or another
+executor. These interchangeable edges may depend on the core workflow, but the
+core never depends on a language, framework, or agent vendor.
+
+## What version 0.1.0 implements today
+
+The repository distinguishes the complete workflow contract from the smaller
+reference implementation that currently enforces selected parts of it.
+
+| Capability | Current status |
+|---|---|
+| Six-phase workflow and rework rules | Specified |
+| Strict schemas and test vectors | Implemented and tested |
+| Project profiles | Provided; full profile conformance is not yet tested |
+| Safe project discovery and supervised initialization | Implemented and tested |
+| Command evidence, snapshots, selected path-policy checks, and timeouts | Implemented and tested |
+| Nonce-bound review challenge and verdict validation | Implemented and tested |
+| Automatic orchestration of Codex or Claude through the complete state machine | Specified, not implemented |
+| Guaranteed fresh agent context for every node | Required by the contract, not orchestrated by the reference shell |
+| Merge, release, deployment, migration, or secret access | Deliberately outside the engine |
+
+Today, the template supplies contracts, configuration, safety boundaries, test
+vectors, and verification building blocks for the loop. Connecting a host
+adapter to actual Codex or Claude invocations remains an explicit integration
+step. This repository is not an unattended AI coding autopilot.
+
+## Try the reference engine in 5 minutes
+
+These steps verify the included control-plane building blocks and create a
+`PAUSED` candidate configuration. They do not launch the complete AI loop.
 
 ### 1. Get the template and run its checks
 
@@ -120,27 +225,13 @@ confirmed every command, boundary, and evidence requirement.
 `initialization.provenance.json` records what was recommended, what was accepted,
 and what was entered manually.
 
-## The workflow for every task
-
-```mermaid
-flowchart LR
-    A[DEFINE<br/>Clarify the goal] --> B[DESIGN<br/>Plan the solution]
-    B --> C[EXECUTE<br/>Build it]
-    C --> D[REVIEW<br/>Inspect independently]
-    D --> E[VALIDATE<br/>Run the evidence checks]
-    E --> F[HANDOVER<br/>Return to a human]
-```
-
-Every project follows this exact sequence. `REVIEW` and `VALIDATE` cannot be
-skipped. Missing decisions become visible blockers instead of hidden guesses.
-
 ## What stays fixed, and what can change?
 
 | Layer | Meaning | Example |
 |---|---|---|
 | Workflow | The fixed development process | `DEFINE` through `HANDOVER` |
 | Project configuration | The project kind and technology | Python CLI, Rust library, documentation |
-| Host and engine | Runs controlled steps | Bash/`jq` reference engine with Codex or Claude |
+| Host and engine | Runs controlled steps | Reference engine plus Codex or Claude host specifications |
 
 Dependencies point inward: project and host adapters may use the core contract,
 but the core contract does not know any programming language or framework.
@@ -159,8 +250,8 @@ but the core contract does not know any programming language or framework.
 - This template is not an unattended autopilot.
 - It cannot guarantee good software. It makes decisions, checks, and evidence
   visible and auditable.
-- Version 0.1 includes only the Unix reference implementation using Bash and
-  `jq`.
+- Version 0.1.0 includes only the Unix-like reference implementation using Bash,
+  `jq`, Git, and Perl.
 - Publishing, deployment, and irreversible external actions remain outside the
   engine and require explicit human approval.
 - Alternative engines may implement the same contracts, but none are currently
@@ -168,6 +259,7 @@ but the core contract does not know any programming language or framework.
 
 ## More documentation
 
+- [Why and how the AI development loop works](docs/AI-DEVELOPMENT-LOOP.md)
 - [Step-by-step quickstart](docs/QUICKSTART.md)
 - [Architecture and boundaries](docs/ARCHITECTURE.md)
 - [Adding profiles and adapters](docs/EXTENDING.md)

@@ -23,6 +23,21 @@ Dependencies point inward: adapters may depend on the kernel contract; the
 kernel never depends on an adapter, profile, language, framework, or project
 layout.
 
+## AI participation boundary
+
+Codex, Claude, or another compatible agent is a bounded worker or independent
+reviewer, never the source of gate truth. A worker produces the artifact required
+by one node. The runner owns command capture, evidence validation, and legal
+state transitions. A human owns activation, blocker resolution, and external
+actions such as merge, publication, release, deployment, migration, secret
+access, or destructive work.
+
+The complete contract requires one fresh context per node and an independent
+review context. The version 0.1.0 reference shell validates selected evidence,
+review, path-policy, and legal transition boundaries, but it does not yet launch
+or orchestrate Codex or Claude through the complete state machine. Host adapters
+describe the capabilities an integration must bind to an installed agent CLI.
+
 ## Kernel invariants
 
 - The exact phase order is `DEFINE`, `DESIGN`, `EXECUTE`, `REVIEW`, `VALIDATE`,
@@ -73,7 +88,7 @@ inputs. Human-readable Markdown may be generated from canonical records, but it
 must not become a competing writable source of truth. Every schema is versioned
 and recursively rejects unknown fields.
 
-## Profiles in v1
+## Profiles in schema version 1
 
 - `cli`: behavior and installation evidence in addition to commands.
 - `api`: behavior and interface-contract evidence; no transport or framework is
@@ -92,7 +107,7 @@ the same workflow and mandatory review gate.
 
 ## Reference implementation boundary
 
-The current reference engine is a Bash+jq+Git implementation for Unix-like
+The current reference engine is a Bash+`jq`+Git+Perl implementation for Unix-like
 control hosts. Its control-plane dependencies are checked by
 `bootstrap/check-prerequisites.sh`; they do not constrain target technology.
 Version `0.1.0` must be consumed through an immutable repository revision or

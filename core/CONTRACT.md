@@ -3,7 +3,8 @@
 ## Scope
 
 This document is the normative contract for a conforming engine, not a claim
-that every requirement is implemented by the v1 reference shell. The kernel advances one bounded work item through a fixed workflow. It is
+that every requirement is implemented by the version 0.1.0 reference shell.
+The kernel advances one bounded work item through a fixed workflow. It is
 independent of target language, runtime, framework, artifact type, user
 interface, operating environment, version-control provider, and agent host.
 
@@ -49,7 +50,7 @@ secret access, and other external-state changes require explicit scoped human
 authority. Autonomy changes continuation boundaries only; it never grants new
 actions or weakens gates.
 
-The v1 reference engine owns local verification, evidence capture, write-policy
+The version 0.1.0 reference engine owns local verification, evidence capture, write-policy
 checks, and review-verdict binding. It does not execute delivery actions.
 
 ## Brakes
@@ -58,6 +59,7 @@ A conforming workflow runner enforces configured round, retry, and wall-clock ca
 workspace mutation; one node per fresh context; and blockers for missing or
 unsafe decisions. Reaching a cap is `BLOCKED`, never success.
 
-The v1 Bash reference engine currently implements command evidence, selected
-path-policy checks, snapshots, review challenges, and verdict validation. It
-does not yet orchestrate this complete state machine or fresh agent contexts.
+The version 0.1.0 Bash reference engine currently implements command evidence,
+selected path-policy checks, snapshots, review challenges, verdict validation,
+and evidence-backed validation of legal state transitions. It does not yet
+orchestrate this complete state machine or fresh agent contexts.
