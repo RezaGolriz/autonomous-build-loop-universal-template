@@ -93,7 +93,7 @@ slice_rows(){
 slice_count(){ slice_rows | awk 'END{print NR}'; }
 # Column COL of slice row N; commas separate entries, backticks and blanks are stripped.
 slice_col(){ # row col
-  slice_rows | awk -v row="$1" -v col="$2" 'NR==row { n=split($0, f, "|"); if (col+1 <= n) print f[col+1] }' | tr ',' '\n' | tr -d '`'
+  slice_rows | awk -v row="$1" -v col="$2" 'NR==row { n=split($0, f, "|"); if (col+1 <= n) print f[col+1] }' | tr ',;' '\n\n' | tr -d '`'
 }
 paths_json(){ printf '%s\n' "$1" | jq -Rsc 'split("\n")|map(gsub("^[ \t]+|[ \t]+$";""))|map(select(length>0))|unique'; }
 current_slice(){ local st n; st=$(jq -r '.step' "$state"); n=$(slice_count); cur=1
@@ -266,6 +266,7 @@ if [ "$phase" = REVIEW ]; then
   jq -n --slurpfile n "$tmp/node.json" --slurpfile c "$tmp/challenge.json" --arg prompt "$rprompt" \
     '$n[0] + {run_id:$c[0].run_id, work_item_id:$c[0].work_item_id, nonce:$c[0].nonce, revision:$c[0].revision, evidence_refs:$c[0].evidence_refs, prompt:$prompt}' > "$tmp/review-brief.json"
   set +e; call_provider "$tmp/review-brief.json" "$tmp/verdict.json" "$perr"; prc=$?; set -e
+  cp "$tmp/verdict.json" "$evidence_dir/$run_id/logs/provider.stdout" 2>/dev/null || :
   if [ "$prc" -ne 0 ] || ! jq -e . "$tmp/verdict.json" >/dev/null 2>&1; then go_blocked 'invalid verdict'; fi
   set +e; "$engine" validate-verdict --challenge "$tmp/challenge.json" --verdict "$tmp/verdict.json" --evidence-dir "$evidence_dir" >/dev/null 2>>"$perr"; vrc=$?; set -e
   [ "$vrc" -le 1 ] || go_blocked 'invalid verdict'
@@ -273,6 +274,7 @@ if [ "$phase" = REVIEW ]; then
   [ "$vrc" -eq 0 ] || { passed=0; defect=$(jq -r '[.findings[]?|select(.disposition=="OPEN" and (.severity=="BLOCKING" or .severity=="HIGH"))][0].category // "artifact"' "$tmp/verdict.json"); }
 else
   set +e; call_provider "$tmp/brief.json" "$tmp/result.json" "$perr"; prc=$?; set -e
+  cp "$tmp/result.json" "$evidence_dir/$run_id/logs/provider.stdout" 2>/dev/null || :
   if [ "$prc" -ne 0 ] || ! jq -e 'type=="object"' "$tmp/result.json" >/dev/null 2>&1; then
     write_orch_evidence "$run_id-orchestrator" artifact FAILED "Provider failed or produced non-JSON output for $phase."
     ev_ids="$run_id-orchestrator"; passed=0; defect=artifact

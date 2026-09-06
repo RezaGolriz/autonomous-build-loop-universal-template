@@ -32,13 +32,14 @@ run_timed() {
   wait "$pid"
 }
 
-run_timed "$bin" exec "${mode[@]}" --skip-git-repo-check -o "$tmp/last.txt" "$prompt" 1>&2
+set +e; run_timed "$bin" exec "${mode[@]}" --skip-git-repo-check -o "$tmp/last.txt" "$prompt" 1>&2; rc=$?; set -e
+if [ "$rc" -ne 0 ] || [ ! -s "$tmp/last.txt" ]; then echo "codex CLI failed (exit $rc) or produced no final message" >&2; exit 1; fi
 
 extract_json() {
   jq -Rrs '([scan("```json[ \\t]*\\r?\\n(.*?)\\r?\\n```"; "s") | .[0]] | last) //
     (split("\n") as $l | ([range(0; $l|length) | select($l[.]|startswith("{"))] | last) as $i | $l[$i:] | join("\n")) | fromjson' "$1"
 }
-extract_json "$tmp/last.txt" >"$tmp/result.json"
+extract_json "$tmp/last.txt" >"$tmp/result.json" || { echo "no JSON result in agent reply; reply follows" >&2; cat "$tmp/last.txt" >&2; exit 1; }
 if [[ $phase == REVIEW ]]; then
   jq -e --slurpfile b "$brief" 'type=="object" and .schema_version==1 and .phase=="REVIEW" and .gate_id=="REVIEW" and .independent==true and
     .run_id==$b[0].run_id and .work_item_id==$b[0].work_item_id and .nonce==$b[0].nonce and .revision==$b[0].revision and .evidence_refs==$b[0].evidence_refs and
