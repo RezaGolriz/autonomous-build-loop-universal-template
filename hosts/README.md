@@ -33,6 +33,7 @@ agent output.
 
 Use `--host claude --provider hosts/claude/provider.sh` or
 `--host codex --provider hosts/codex/provider.sh`. The mock provider
-`hosts/mock/provider.sh` is for tests. Executor and reviewer may be different
-agents by running REVIEW nodes with a different `--provider`; cross-agent review
-is recommended.
+`hosts/mock/provider.sh` is for tests. Cross-agent review: add --review-host
+codex --review-provider hosts/codex/provider.sh (or the claude pair) to run or
+loop; every REVIEW node then uses that provider while all other phases use
+--provider.

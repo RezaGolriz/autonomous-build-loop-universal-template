@@ -12,10 +12,11 @@ need jq; need git
 [ -x "$engine" ] || die 'reference engine missing' 69
 
 mode=${1:-}; [ -n "$mode" ] || die 'mode required'; shift
-root= host= provider= max_nodes=1
+root= host= provider= review_host= review_provider= max_nodes=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) root=$2; shift 2;; --host) host=$2; shift 2;; --provider) provider=$2; shift 2;;
+    --review-host) review_host=$2; shift 2;; --review-provider) review_provider=$2; shift 2;;
     --max-nodes) max_nodes=$2; shift 2;; *) die "unknown argument: $1";;
   esac
 done
@@ -26,6 +27,7 @@ loop="$root/.loop"; state="$loop/state.json"; adapter_file="$loop/project.adapte
 workflow_file="$loop/workflow.json"; [ -f "$workflow_file" ] || workflow_file="$repo_root/core/workflow.json"
 evidence_dir="$loop/evidence"
 prov_abs=$provider; case "$provider" in ''|/*) ;; *) prov_abs="$PWD/$provider";; esac
+review_prov_abs=$review_provider; case "$review_provider" in ''|/*) ;; *) review_prov_abs="$PWD/$review_provider";; esac
 
 now(){ date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 lower(){ printf '%s' "$1" | tr 'A-Z' 'a-z'; }
@@ -80,7 +82,7 @@ phase_success(){ case "$1" in
   HANDOVER) echo 'The handover section is non-empty and the run stops for a human decision.';;
 esac; }
 
-host_card(){ for f in "$repo_root/hosts/$host/CLAUDE.md" "$repo_root/hosts/$host/AGENTS.md"; do [ -f "$f" ] && { cat "$f"; return 0; }; done; :; }
+host_card(){ local card_host=${use_host:-$host}; for f in "$repo_root/hosts/$card_host/CLAUDE.md" "$repo_root/hosts/$card_host/AGENTS.md"; do [ -f "$f" ] && { cat "$f"; return 0; }; done; :; }
 
 # Rows of the work item "## Execution slices" table (header and rule rows skipped).
 slice_rows(){
@@ -133,7 +135,7 @@ call_provider(){ # brief out err
   local name; env_args=()
   while IFS= read -r name; do env_args+=("$name=${!name-}"); done < <(jq -r '.environment.allow_names[]' "$adapter_file")
   ( cd "$root" && env -i "${env_args[@]}" LOOP_ROOT="$root" LOOP_PHASE="$phase" LOOP_RUN_ID="$run_id" \
-      LOOP_WORK_ITEM="$work" "$prov_abs" ) <"$1" >"$2" 2>"$3"
+      LOOP_WORK_ITEM="$work" "$use_prov" ) <"$1" >"$2" 2>"$3"
 }
 
 has_section(){ awk -v h="$1" '$0==h{f=1;next} /^## /{f=0} f&&NF{c++} END{exit c?0:1}' "$wi"; }
@@ -212,7 +214,10 @@ loop)
   [ -n "$max_nodes" ] || max_nodes=1
   i=0
   while [ "$i" -lt "$max_nodes" ]; do
-    set +e; "$self_dir/orchestrator.sh" run --root "$root" --host "$host" --provider "$provider" >/dev/null; rc=$?; set -e
+    set -- run --root "$root" --host "$host" --provider "$provider"
+    [ -z "$review_host" ] || set -- "$@" --review-host "$review_host"
+    [ -z "$review_provider" ] || set -- "$@" --review-provider "$review_provider"
+    set +e; "$self_dir/orchestrator.sh" "$@" >/dev/null; rc=$?; set -e
     [ "$rc" -le 1 ] || die "run failed with exit $rc" "$rc"
     i=$((i+1))
     should_continue || break
@@ -234,7 +239,12 @@ if [ "$mode" = next ]; then build_brief; exit 0; fi
 
 # ---- run ----
 [ -n "$provider" ] || die '--provider is required'
-[ -x "$prov_abs" ] || die "provider not executable: $provider" 69
+use_prov=$prov_abs; use_host=$host
+if [ "$phase" = REVIEW ]; then
+  [ -z "$review_provider" ] || use_prov=$review_prov_abs
+  [ -z "$review_host" ] || use_host=$review_host
+fi
+[ -x "$use_prov" ] || die "provider not executable: $use_prov" 69
 [ ! -e "$loop/engine.lock" ] || die 'workspace is already locked' 73
 if [ "$(jq -r .run_status "$state")" != RUNNING ]; then
   handover_pending || die 'run requires run_status RUNNING' 65
@@ -264,8 +274,8 @@ if [ "$phase" = REVIEW ]; then
   challenge_text=$(jq -r '"run_id: \(.run_id)\nwork_item_id: \(.work_item_id)\nnonce: \(.nonce)\nrevision: \(.revision)\nevidence_refs: \(.evidence_refs|join(", "))"' "$tmp/challenge.json")
   rprompt=$(printf '%s\n\n# Work item %s\n\n%s\n\n# Durable change\n\n```diff\n%s\n```\n\n# Referenced evidence\n%s\n\n# Review challenge (issued by the engine; copy these values verbatim into the verdict)\n\n%s\n\n# Instruction\n\n%s\nYou are the independent reviewer. Do not change any file. Return one verdict JSON whose run_id, work_item_id, nonce, revision and evidence_refs are exactly the challenge values above.\n' \
     "$(host_card)" "$work" "$(cat "$wi")" "$diff_text" "$ev_text" "$challenge_text" "$(phase_task REVIEW)")
-  jq -n --slurpfile n "$tmp/node.json" --slurpfile c "$tmp/challenge.json" --arg prompt "$rprompt" \
-    '$n[0] + {run_id:$c[0].run_id, work_item_id:$c[0].work_item_id, nonce:$c[0].nonce, revision:$c[0].revision, evidence_refs:$c[0].evidence_refs, prompt:$prompt}' > "$tmp/review-brief.json"
+  jq -n --slurpfile n "$tmp/node.json" --slurpfile c "$tmp/challenge.json" --arg prompt "$rprompt" --arg reviewer_host "$use_host" \
+    '$n[0] + {run_id:$c[0].run_id, work_item_id:$c[0].work_item_id, nonce:$c[0].nonce, revision:$c[0].revision, evidence_refs:$c[0].evidence_refs, reviewer_host:$reviewer_host, prompt:$prompt}' > "$tmp/review-brief.json"
   set +e; call_provider "$tmp/review-brief.json" "$tmp/verdict.json" "$perr"; prc=$?; set -e
   cp "$tmp/verdict.json" "$evidence_dir/$run_id/logs/provider.stdout" 2>/dev/null || :
   if [ "$prc" -ne 0 ] || ! jq -e . "$tmp/verdict.json" >/dev/null 2>&1; then go_blocked 'invalid verdict'; fi

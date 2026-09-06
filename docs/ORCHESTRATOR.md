@@ -58,8 +58,9 @@ See `hosts/README.md` for the provider contract. Included providers:
 - `hosts/claude/provider.sh` — Claude Code CLI (`claude -p`).
 - `hosts/codex/provider.sh` — Codex CLI (`codex exec`).
 
-Executor and reviewer may be different agents: run the `REVIEW` node with a
-different `--provider`.
+Cross-agent review: add --review-host codex --review-provider
+hosts/codex/provider.sh (or the claude pair) to run or loop; every REVIEW node
+then uses that provider while all other phases use --provider.
 
 ## Try it with the mock provider
 

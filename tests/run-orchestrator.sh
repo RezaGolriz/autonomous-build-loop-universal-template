@@ -109,4 +109,15 @@ grep -q 'src/extra_module.py' "$d/review-brief.json" || bad 'review brief does n
 jq -e '.prompt|contains("Hello, {name}")' "$d/review-brief.json" >/dev/null || bad 'review brief does not show the tracked diff'
 ok 'the review brief contains tracked and untracked changes'
 
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+printf '%s\n' '#!/usr/bin/env bash' "echo \"REVIEW-WRAPPER \$LOOP_PHASE\" >> \"$d.calls\"" "exec \"$mock\"" > "$d/review-wrapper.sh"
+chmod +x "$d/review-wrapper.sh"
+s=$(script "$d" '{"VALIDATE":"block"}')
+if MOCK_SCRIPT=$s MOCK_DUMP="$d/review-brief.json" "$orch" loop --root "$d" --host mock --provider "$mock" --review-host mock --review-provider "$d/review-wrapper.sh" --max-nodes 6 >/dev/null; then bad 'VALIDATE did not stop the review-provider test'; fi
+[ "$(wc -l < "$d.calls" | tr -d ' ')" = 1 ] || bad 'review provider was not called exactly once'
+[ "$(cat "$d.calls")" = 'REVIEW-WRAPPER REVIEW' ] || bad 'review provider was called outside REVIEW'
+[ "$(st "$d" .phase)" = VALIDATE ] || bad "expected VALIDATE after review, got $(st "$d" .phase)"
+[ "$(st "$d" '.gates.REVIEW.status')" = PASSED ] || bad 'review did not pass'
+ok 'loop uses the separate review provider only for REVIEW'
+
 echo "1..$n"
