@@ -116,16 +116,18 @@ process.
 
 ## Current implementation boundary
 
-Version 0.1.0 implements supervised initialization, strict schemas, test vectors,
+The reference implementation provides supervised initialization, strict schemas, test vectors,
 command evidence capture, snapshots, selected path-policy enforcement, timeouts,
 review challenges, and review-verdict validation. Its conformance fixtures cover
 a Python CLI and a documentation-only project plus selected fail-closed cases.
 
-The current shell does not yet launch Codex or Claude or orchestrate every phase
-and fresh context automatically. Host adapters describe the required
-capabilities, and an integration must bind those capabilities to the installed
-agent CLI. This distinction prevents documentation from claiming automation
-that the reference implementation does not yet provide.
+`engine/orchestrator.sh` runs one work item through every phase: it starts a
+fresh provider process for each node (and a separate one, optionally a
+different agent, for review), hands every result to the reference engine, and
+only the engine decides whether a gate passed. Providers for the Claude Code
+CLI and the Codex CLI are included and have been exercised in real end-to-end
+runs; see [ORCHESTRATOR.md](ORCHESTRATOR.md). Multiple work items and parallel
+runs are not implemented yet.
 
 ## What a successful adoption provides
 

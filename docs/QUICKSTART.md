@@ -88,8 +88,10 @@ Open `ACTIVATION-CHECKLIST.md` first. In particular, confirm:
 Use `initialization.provenance.json` to see the discovery evidence and whether
 each important value came from an accepted recommendation or a manual answer.
 
-The state remains `PAUSED`. Version 0.1.0 deliberately provides no command that
-bypasses this human review or activates a loop automatically.
+The state remains `PAUSED`. There is deliberately no command that bypasses
+this human review or activates a loop automatically. Once you have activated
+the files, `engine/orchestrator.sh start` and `loop` run the work item; see
+[ORCHESTRATOR.md](ORCHESTRATOR.md).
 
 ## 5. What happens after activation?
 

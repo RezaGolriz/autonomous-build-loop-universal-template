@@ -33,10 +33,12 @@ actions such as merge, publication, release, deployment, migration, secret
 access, or destructive work.
 
 The complete contract requires one fresh context per node and an independent
-review context. The version 0.1.0 reference shell validates selected evidence,
-review, path-policy, and legal transition boundaries, but it does not yet launch
-or orchestrate Codex or Claude through the complete state machine. Host adapters
-describe the capabilities an integration must bind to an installed agent CLI.
+review context. The reference engine validates evidence, review, path-policy,
+and legal transition boundaries; `engine/orchestrator.sh` sequences one work
+item through the state machine, starting a fresh provider process per node and
+a separate process (optionally a different agent) for review. Host adapters
+describe the capabilities, and the provider scripts under `hosts/` bind them to
+the installed agent CLIs.
 
 ## Kernel invariants
 
@@ -110,7 +112,7 @@ the same workflow and mandatory review gate.
 The current reference engine is a Bash+`jq`+Git+Perl implementation for Unix-like
 control hosts. Its control-plane dependencies are checked by
 `bootstrap/check-prerequisites.sh`; they do not constrain target technology.
-Version `0.1.0` must be consumed through an immutable repository revision or
+Each version must be consumed through an immutable repository revision or
 release so schemas, engine, tests, and protocol documentation remain aligned.
 
 Current conformance covers the Python-CLI and docs-only fixtures plus selected

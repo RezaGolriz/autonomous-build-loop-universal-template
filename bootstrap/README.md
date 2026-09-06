@@ -46,7 +46,7 @@ Never auto-detect and execute a command in the same step. A missing tool,
 unknown schema version, placeholder, empty protected set, failed negative
 control or host mismatch blocks activation.
 
-The version `0.1.0` reference control plane uses Bash 3+, jq, Git,
+The reference control plane uses Bash 3+, jq, Git,
 Perl, and standard Unix command-line utilities. Pin the complete protocol and
 engine repository to an immutable release or Git revision; pinning only this
 initializer is insufficient.
