@@ -46,9 +46,11 @@ extract_json "$tmp/message.txt" >"$tmp/result.json" || { echo "no JSON result in
 if [[ $phase == REVIEW ]]; then
   jq -e --slurpfile b "$brief" 'type=="object" and .schema_version==1 and .phase=="REVIEW" and .gate_id=="REVIEW" and .independent==true and
     .run_id==$b[0].run_id and .work_item_id==$b[0].work_item_id and .nonce==$b[0].nonce and .revision==$b[0].revision and .evidence_refs==$b[0].evidence_refs and
-    has("verdict_id") and has("result") and has("reviewer") and has("captured_at") and has("findings")' "$tmp/result.json" >/dev/null
+    has("verdict_id") and has("result") and has("reviewer") and has("captured_at") and has("findings")' "$tmp/result.json" >/dev/null \
+    || { echo "verdict does not echo the challenge or lacks required fields; verdict follows" >&2; cat "$tmp/result.json" >&2; exit 1; }
 else
   jq -e 'keys==["blocker","defect_class","notes","schema_version","status"] and .schema_version==1 and (.status=="DONE" or .status=="BLOCKED") and
-    (.defect_class as $d | $d==null or (["requirement","design","artifact"]|index($d))) and (.blocker==null or (.blocker|type)=="string") and (.notes|type)=="string"' "$tmp/result.json" >/dev/null
+    (.defect_class as $d | $d==null or (["requirement","design","artifact"]|index($d))) and (.blocker==null or (.blocker|type)=="string") and (.notes|type)=="string"' "$tmp/result.json" >/dev/null \
+    || { echo "result does not match the provider contract; result follows" >&2; cat "$tmp/result.json" >&2; exit 1; }
 fi
 jq -c . "$tmp/result.json"

@@ -261,8 +261,9 @@ if [ "$phase" = REVIEW ]; then
   ev_text=""
   for id in $refs; do ev_text=$(printf '%s\n## %s\n%s\n' "$ev_text" "$id" "$(cat "$evidence_dir/$id.json")"); done
   diff_text=$(review_diff)
-  rprompt=$(printf '%s\n\n# Work item %s\n\n%s\n\n# Durable change\n\n```diff\n%s\n```\n\n# Referenced evidence\n%s\n\n# Instruction\n\n%s\nReturn one verdict JSON echoing run_id, work_item_id, nonce, revision and evidence_refs from this brief.\n' \
-    "$(host_card)" "$work" "$(cat "$wi")" "$diff_text" "$ev_text" "$(phase_task REVIEW)")
+  challenge_text=$(jq -r '"run_id: \(.run_id)\nwork_item_id: \(.work_item_id)\nnonce: \(.nonce)\nrevision: \(.revision)\nevidence_refs: \(.evidence_refs|join(", "))"' "$tmp/challenge.json")
+  rprompt=$(printf '%s\n\n# Work item %s\n\n%s\n\n# Durable change\n\n```diff\n%s\n```\n\n# Referenced evidence\n%s\n\n# Review challenge (issued by the engine; copy these values verbatim into the verdict)\n\n%s\n\n# Instruction\n\n%s\nYou are the independent reviewer. Do not change any file. Return one verdict JSON whose run_id, work_item_id, nonce, revision and evidence_refs are exactly the challenge values above.\n' \
+    "$(host_card)" "$work" "$(cat "$wi")" "$diff_text" "$ev_text" "$challenge_text" "$(phase_task REVIEW)")
   jq -n --slurpfile n "$tmp/node.json" --slurpfile c "$tmp/challenge.json" --arg prompt "$rprompt" \
     '$n[0] + {run_id:$c[0].run_id, work_item_id:$c[0].work_item_id, nonce:$c[0].nonce, revision:$c[0].revision, evidence_refs:$c[0].evidence_refs, prompt:$prompt}' > "$tmp/review-brief.json"
   set +e; call_provider "$tmp/review-brief.json" "$tmp/verdict.json" "$perr"; prc=$?; set -e
