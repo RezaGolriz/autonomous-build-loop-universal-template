@@ -75,3 +75,9 @@ fails the gate, a failing verifier blocks, and a locked workspace is refused.
   one; per-slice tracking is a follow-up;
 - no delivery: merge, release, and deployment stay outside the engine;
 - the real providers are not exercised by tests (they need the installed CLIs).
+
+## Dashboard
+Run `engine/render-dashboard.sh --root DIR` to write `.loop/dashboard.html`.
+The static, read-only page summarizes status, transitions, blockers, evidence, gates, and the work item.
+Use `--output FILE` to choose another path or `--output -` for stdout.
+The renderer executes no project commands and uses no network resources.
