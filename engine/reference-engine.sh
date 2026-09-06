@@ -19,7 +19,7 @@ while [ $# -gt 0 ]; do
 done
 now(){ date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 safe_path(){ case "$1" in ''|/*|..|../*|*/..|*/../*|*[$'\n\r']*) return 1;; esac; }
-physical_under_root(){ p=$(cd "$1" 2>/dev/null&&pwd -P)||return 1; case "$p/" in "$root/"*) printf '%s\n' "$p";; *) return 1;; esac; }
+physical_under_root(){ local phys; phys=$(cd "$1" 2>/dev/null&&pwd -P)||return 1; case "$phys/" in "$root/"*) printf '%s\n' "$phys";; *) return 1;; esac; }
 no_symlink_prefix(){ rel=$1; cur=$root; oldifs=$IFS; IFS=/; set -- $rel; IFS=$oldifs; for part in "$@"; do case "$part" in *'*'*|*'?'*|*'['*) break;; esac; cur="$cur/$part"; [ ! -L "$cur" ]||return 1; done; }
 lock_workspace(){ mkdir -p "$root/.loop"; lock="$root/.loop/engine.lock"; mkdir "$lock" 2>/dev/null||die 'workspace is already locked' 73; echo $$ > "$lock/pid"; }
 unlock_workspace(){ [ -z "${lock:-}" ]||rm -f "$lock/pid" 2>/dev/null||:; [ -z "${lock:-}" ]||rmdir "$lock" 2>/dev/null||:; }

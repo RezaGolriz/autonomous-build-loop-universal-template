@@ -126,14 +126,16 @@ reference implementation that currently enforces selected parts of it.
 | Safe project discovery and supervised initialization | Implemented and tested |
 | Command evidence, snapshots, selected path-policy checks, and timeouts | Implemented and tested |
 | Nonce-bound review challenge and verdict validation | Implemented and tested |
-| Automatic orchestration of Codex or Claude through the complete state machine | Specified, not implemented |
-| Guaranteed fresh agent context for every node | Required by the contract, not orchestrated by the reference shell |
+| Automatic orchestration of Codex or Claude through the complete state machine | Implemented for a single work item (`engine/orchestrator.sh`, provider-driven) |
+| Guaranteed fresh agent context for every node | Implemented: every node and every review is a fresh provider process |
 | Merge, release, deployment, migration, or secret access | Deliberately outside the engine |
 
 Today, the template supplies contracts, configuration, safety boundaries, test
-vectors, and verification building blocks for the loop. Connecting a host
-adapter to actual Codex or Claude invocations remains an explicit integration
-step. This repository is not an unattended AI coding autopilot.
+vectors, verification building blocks, and an orchestrator that runs one work
+item through all six phases with a pluggable provider (mock for tests, Claude
+Code CLI, or Codex CLI). See [the orchestrator guide](docs/ORCHESTRATOR.md).
+Activation, blockers, and every external action still belong to a human. This
+repository is not an unattended AI coding autopilot.
 
 ## Try the reference engine in 5 minutes
 
@@ -262,6 +264,7 @@ but the core contract does not know any programming language or framework.
 - [Why and how the AI development loop works](docs/AI-DEVELOPMENT-LOOP.md)
 - [Step-by-step quickstart](docs/QUICKSTART.md)
 - [Architecture and boundaries](docs/ARCHITECTURE.md)
+- [Running the orchestrator](docs/ORCHESTRATOR.md)
 - [Adding profiles and adapters](docs/EXTENDING.md)
 - [Bootstrap protocol](bootstrap/README.md)
 - [Initialization questions](template/INITIALIZATION.md)
