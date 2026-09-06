@@ -45,9 +45,13 @@ jq -e '.evidence_type=="independent-review" and .producer=="reference-engine" an
 cid=$(st "$d" '[.gates.EXECUTE.evidence_ids[]|select(endswith("-build-check"))][0]')
 jq -e '.evidence_type=="command" and (.details.stdout_sha256|test("^[0-9a-f]{64}$"))' "$d/.loop/evidence/$cid.json" >/dev/null || bad 'execute command evidence missing'
 ok 'happy path reaches HANDOVER with six passed gates and engine-owned evidence'
+[ "$(st "$d" .round)" -eq 7 ] || bad "expected 7 rounds for two slices, got $(st "$d" .round)"
+[ -f "$d/tests/notes.txt" ] || bad 'slice 2 did not run'
+[ "$(st "$d" .step)" = slice-2 ] || bad "step should record the last slice, got $(st "$d" .step)"
+ok 'two execution slices run in order with per-slice path policy (backticks stripped)'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
-MOCK_SCRIPT=$(script "$d" '{"REVIEW":"fail:artifact"}') "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 4 >/dev/null
+MOCK_SCRIPT=$(script "$d" '{"REVIEW":"fail:artifact"}') "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 5 >/dev/null
 [ "$(st "$d" .phase)" = EXECUTE ] || bad "review rework phase $(st "$d" .phase)"
 [ "$(st "$d" .gate_failures_here)" = 1 ] || bad 'gate failure not counted'
 [ "$(st "$d" '.gates.REVIEW.status')" = FAILED ] || bad 'review gate not FAILED'
@@ -99,7 +103,7 @@ ok 'loop propagates a fatal run failure instead of retrying'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
 s=$(script "$d" '{"EXECUTE":"add-file"}')
-MOCK_SCRIPT=$s MOCK_DUMP="$d/review-brief.json" "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 4 >/dev/null
+MOCK_SCRIPT=$s MOCK_DUMP="$d/review-brief.json" "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 5 >/dev/null
 [ "$(st "$d" .phase)" = VALIDATE ] || bad "expected VALIDATE after review, got $(st "$d" .phase)"
 grep -q 'src/extra_module.py' "$d/review-brief.json" || bad 'review brief does not show the untracked new file'
 jq -e '.prompt|contains("Hello, {name}")' "$d/review-brief.json" >/dev/null || bad 'review brief does not show the tracked diff'

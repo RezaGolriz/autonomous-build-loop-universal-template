@@ -82,16 +82,23 @@ esac; }
 
 host_card(){ for f in "$repo_root/hosts/$host/CLAUDE.md" "$repo_root/hosts/$host/AGENTS.md"; do [ -f "$f" ] && { cat "$f"; return 0; }; done; :; }
 
-# Second/third column of the work item "## Execution slices" table.
-slice_col(){
-  awk -v col="$1" '
+# Rows of the work item "## Execution slices" table (header and rule rows skipped).
+slice_rows(){
+  awk '
     /^## / { insec = ($0 ~ /^## Execution slices/); next }
     !insec { next }
-    /^[ \t]*\|/ { n=split($0, f, "|"); if (col+1 > n) next; v=f[col+1];
-      gsub(/^[ \t]+/, "", v); gsub(/[ \t]+$/, "", v);
-      if (v=="" || v ~ /^-+$/ || v=="Allowed paths" || v=="Frozen paths") next; print v }' "$wi" | tr ',' '\n'
+    /^[ \t]*\|/ { n=split($0, f, "|"); if (n < 3) next; v=f[2]; gsub(/^[ \t]+|[ \t]+$/, "", v);
+      if (v=="" || v ~ /^-+$/ || v=="Slice") next; print $0 }' "$wi"
+}
+slice_count(){ slice_rows | awk 'END{print NR}'; }
+# Column COL of slice row N; commas separate entries, backticks and blanks are stripped.
+slice_col(){ # row col
+  slice_rows | awk -v row="$1" -v col="$2" 'NR==row { n=split($0, f, "|"); if (col+1 <= n) print f[col+1] }' | tr ',' '\n' | tr -d '`'
 }
 paths_json(){ printf '%s\n' "$1" | jq -Rsc 'split("\n")|map(gsub("^[ \t]+|[ \t]+$";""))|map(select(length>0))|unique'; }
+current_slice(){ local st n; st=$(jq -r '.step' "$state"); n=$(slice_count); cur=1
+  case "$st" in slice-[0-9]*) cur=${st#slice-};; esac
+  [ "$cur" -ge 1 ] 2>/dev/null || cur=1; [ "$n" -eq 0 ] || [ "$cur" -le "$n" ] || cur=$n; echo "$cur"; }
 
 build_brief(){
   local task succ cap vids outs ap fp card prompt
@@ -104,14 +111,16 @@ build_brief(){
     [ "$vids" != '[]' ] || { vids='["orchestrator"]'; outs='[]'; }
   fi
   if [ "$phase" = EXECUTE ]; then
-    ap=$(paths_json "$(slice_col 2 || true)"); [ "$ap" != '[]' ] || ap='["src/**","tests/**"]'
-    fp=$(paths_json "$(slice_col 3 || true)"); [ "$fp" != '[]' ] || fp='["requirements/**"]'
+    slices=$(slice_count); cur=$(current_slice)
+    ap=$(paths_json "$(slice_col "$cur" 2 || true)"); [ "$ap" != '[]' ] || ap='["src/**","tests/**"]'
+    fp=$(paths_json "$(slice_col "$cur" 3 || true)"); [ "$fp" != '[]' ] || fp='["requirements/**"]'
+    if [ "$slices" -gt 0 ]; then task="Slice $cur of $slices: $(slice_col "$cur" 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//'). $task"; fi
   else
     ap='[".loop/work-items/**"]'; fp='["requirements/**"]'
   fi
   card=$(host_card)
-  prompt=$(printf '%s\n\n# Work item %s\n\n%s\n\n# Current loop state\n\n%s\n\n# Node task (%s)\n\n%s\n\nSuccess condition: %s\n' \
-    "$card" "$work" "$(cat "$wi")" "$(cat "$state")" "$phase" "$task" "$succ")
+  prompt=$(printf '%s\n\n# Work item %s (file: %s)\n\n%s\n\n# Current loop state\n\n%s\n\n# Node task (%s)\n\n%s\n\nSuccess condition: %s\n\n# Path policy for this node\n\nYou may change only these paths (glob patterns): %s\nFrozen for this node: %s\nEverything else must stay unchanged. For DEFINE, DESIGN and HANDOVER the work item file above is the only file to edit; the adapter protected_paths apply to product code, not to this edit.\n' \
+    "$card" "$work" ".loop/work-items/$work.md" "$(cat "$wi")" "$(cat "$state")" "$phase" "$task" "$succ" "$(jq -r 'join(", ")' <<<"$ap")" "$(jq -r 'join(", ")' <<<"$fp")")
   jq -n --arg run "$run_id" --arg node "$(lower "$phase")-$round" --arg gate "$phase" --arg w "$work" \
     --arg p "$phase" --arg task "$task" --arg cap "$cap" --arg succ "$succ" --argjson v "$vids" \
     --argjson o "$outs" --argjson ap "$ap" --argjson fp "$fp" --argjson cap_n "$(jq -r .max_gate_failures "$state")" --arg prompt "$prompt" \
@@ -315,12 +324,21 @@ if [ "$passed" -eq 1 ]; then
       '.gates.HANDOVER={status:"PASSED",evidence_ids:[$id]}|.run_status="WAITING_FOR_HUMAN"|.round=(.round+1)|.last_result="gate PASSED"|.next_action="await human decision"|.updated_at=$n'
     print_status; exit 0
   fi
+  if [ "$phase" = EXECUTE ]; then
+    slices=$(slice_count); cur=$(current_slice)
+    if [ "$slices" -gt 0 ] && [ "$cur" -lt "$slices" ]; then
+      write_state --arg st "slice-$((cur+1))" --arg n "$(now)" '.step=$st|.updated_at=$n'
+      do_transition EXECUTE; print_status; exit 0
+    fi
+  fi
   do_transition "$(green_target "$phase")"
   print_status; exit 0
 fi
 
 case "$phase" in
-  REVIEW|VALIDATE) do_transition "$(rework_target "$defect")" "$defect"; print_status
+  REVIEW|VALIDATE) do_transition "$(rework_target "$defect")" "$defect"
+    [ "$(jq -r .phase "$state")" != EXECUTE ] || write_state --arg n "$(now)" '.step="slice-1"|.updated_at=$n'
+    print_status
     [ "$(jq -r .run_status "$state")" != BLOCKED ] || exit 1; exit 1;;
   *) go_blocked "gate failed (${defect:-artifact})";;
 esac

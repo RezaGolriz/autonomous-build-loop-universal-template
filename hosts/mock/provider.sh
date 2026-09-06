@@ -49,10 +49,12 @@ case "$phase" in
     add_under '## Out of scope' '- Nothing else';;
   DESIGN)
     add_under '## Design' '- Single function in src/greet.py'
-    add_under '## Execution slices' '| 1 | src/**,tests/** | requirements/** | test | tests pass |';;
+    add_under '## Execution slices' '| 1 | src/** | requirements/** | test | tests pass |'
+    add_under '## Execution slices' '| 2 | `tests/**` | `src/**`, requirements/** | test | tests pass |';;
   HANDOVER)
     add_under '## Handover' '- Revision and evidence recorded';;
   EXECUTE)
+    case "$(jq -r '.task' "$brief")" in "Slice 2 of"*) printf '# touched by slice 2\n' >> "$root/tests/notes.txt"; done_json; exit 0;; esac
     mkdir -p "$root/src"
     case "$action" in
       fail) printf 'def greeting(name: str) -> str:\n    return f"Goodbye, {name}!"\n\n' > "$root/src/greet.py";;

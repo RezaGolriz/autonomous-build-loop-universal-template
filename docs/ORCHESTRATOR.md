@@ -30,7 +30,11 @@ Required files under `DIR/.loop/`: `state.json`, `project.adapter.json`,
   record with producer `orchestrator`.
 - `EXECUTE`, `VALIDATE`: the provider produces the artifact; the engine `verify`
   mode runs the adapter commands, captures command evidence, and enforces
-  allowed, frozen, and protected paths.
+  allowed, frozen, and protected paths. `EXECUTE` runs once per row of the
+  work item's `## Execution slices` table (allowed and frozen paths come from
+  that row; `state.step` records `slice-N`), advancing `EXECUTE -> EXECUTE`
+  until the last slice, then `REVIEW`. A rework back to `EXECUTE` restarts at
+  slice 1.
 - `REVIEW`: the engine issues a nonce-bound challenge; a fresh provider process
   receives the contract, the exact `git diff`, the referenced evidence, and the
   challenge fields, and returns a verdict. The engine validates the verdict.
@@ -84,8 +88,6 @@ go through `bootstrap/init.sh` and the activation checklist.
 ## Not covered yet
 
 - one work item per run; no queue of work items and no parallelism;
-- `EXECUTE` allows the paths of every execution slice, not only the current
-  one; per-slice tracking is a follow-up;
 - no delivery: merge, release, and deployment stay outside the engine;
 - the real providers are not exercised by tests (they need the installed CLIs).
 

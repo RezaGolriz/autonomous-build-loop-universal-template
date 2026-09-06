@@ -50,7 +50,7 @@ jq -n '{schema_version:1,adapter_id:"textkit-trial",project_kind:"library",
     {id:"build-check",phase:"EXECUTE",cwd:".",argv:["python3","-B","-m","unittest","discover","-s","tests","-q"],timeout_seconds:120,evidence_types:["command","behavior"]},
     {id:"test",phase:"VALIDATE",cwd:".",argv:["python3","-B","-m","unittest","discover","-s","tests","-q"],timeout_seconds:120,evidence_types:["command","behavior"]}],
   validation:{required_evidence:["command","behavior"]},
-  protected_paths:[".loop/**",".gitignore"],
+  protected_paths:[".loop/state.json",".loop/workflow.json",".loop/project.adapter.json",".loop/evidence/**",".gitignore"],
   environment:{allow_names:["PATH","HOME","USER","SHELL","TERM","LANG","LC_ALL","TMPDIR","CLAUDE_BIN","CODEX_BIN","PROVIDER_TIMEOUT"]}}' > "$target/.loop/project.adapter.json"
 cp "$repo/core/workflow.json" "$target/.loop/workflow.json"
 jq -n --arg n "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '{schema_version:1,work_item_id:"WI-001",phase:"DEFINE",run_status:"PAUSED",step:"trial",round:0,max_rounds:20,gate_failures_here:0,max_gate_failures:3,autonomy:"supervised",started_epoch:0,max_wall_seconds:7200,
