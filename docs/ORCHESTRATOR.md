@@ -28,7 +28,7 @@ Required files under `DIR/.loop/`: `state.json`, `project.adapter.json`,
   orchestrator checks that the required sections are non-empty and that only
   allowed paths changed, then writes a `contract` or `documentation` evidence
   record with producer `orchestrator`.
-- `EXECUTE`, `VALIDATE`: the provider produces the artifact; the engine `verify`
+- `EXECUTE`, `VALIDATE`: the provider produces the artifact (in `VALIDATE` it changes nothing, but the verification commands may write build or test output, so the union of all slice paths is allowed there); the engine `verify`
   mode runs the adapter commands, captures command evidence, and enforces
   allowed, frozen, and protected paths. `EXECUTE` runs once per row of the
   work item's `## Execution slices` table (allowed and frozen paths come from

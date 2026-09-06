@@ -117,6 +117,10 @@ build_brief(){
     ap=$(paths_json "$(slice_col "$cur" 2 || true)"); [ "$ap" != '[]' ] || ap='["src/**","tests/**"]'
     fp=$(paths_json "$(slice_col "$cur" 3 || true)"); [ "$fp" != '[]' ] || fp='["requirements/**"]'
     if [ "$slices" -gt 0 ]; then task="Slice $cur of $slices: $(slice_col "$cur" 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//'). $task"; fi
+  elif [ "$phase" = VALIDATE ]; then
+    # Verification commands may write build or test output; allow every slice's paths, the agent itself changes nothing.
+    ap=$(paths_json "$(printf '%s\n' ".loop/work-items/**"; n=$(slice_count); i=1; while [ "$i" -le "$n" ]; do slice_col "$i" 2 || true; i=$((i+1)); done)")
+    fp='["requirements/**"]'
   else
     ap='[".loop/work-items/**"]'; fp='["requirements/**"]'
   fi

@@ -1,11 +1,8 @@
 # Blockers
 
-Use one entry per missing decision:
+One line per open decision. The orchestrator appends them; a human answers and ticks the box, then runs `resume`.
 
 ```text
-## WI-XXX: short question (open|resolved)
-Problem: ...
-Options: ...
-Recommendation: ...
-Answer: ...
+- [ ] PHASE run-id: short question or missing decision
+- [x] PHASE run-id: resolved (answer: ...)
 ```

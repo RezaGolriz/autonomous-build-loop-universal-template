@@ -165,7 +165,9 @@ able to activate itself.
 ![Safe initialization recommendation flow](docs/images/initialization-flow.svg)
 
 Then write your first work item in `.loop/work-items/` (a template is in
-`template/work-items/`), and start the loop as shown above.
+`template/work-items/`), and start the loop as shown above. The
+[examples](docs/examples/README.md) walk through this for a web shop, an API,
+an ESP32 firmware, and a web app.
 
 ## What the referee guarantees
 
@@ -204,6 +206,7 @@ Then write your first work item in `.loop/work-items/` (a template is in
 
 ## More documentation
 
+- [Examples: web shop, API, ESP32 firmware, web app](docs/examples/README.md)
 - [The orchestrator in detail](docs/ORCHESTRATOR.md)
 - [Why and how the loop works](docs/AI-DEVELOPMENT-LOOP.md)
 - [Step-by-step quickstart](docs/QUICKSTART.md)
