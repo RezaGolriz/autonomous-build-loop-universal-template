@@ -68,7 +68,7 @@ phase_task(){ case "$1" in
   DESIGN) echo 'Write the design and the independently provable execution slices into the work item.';;
   EXECUTE) echo 'Produce the declared artifact for the current slice inside the allowed paths only.';;
   REVIEW) echo 'Review the exact durable change and the referenced evidence, then return a verdict.';;
-  VALIDATE) echo 'Confirm acceptance and regression evidence for the work item.';;
+  VALIDATE) echo 'Run the configured verification commands and confirm acceptance and regression behaviour. This node is READ-ONLY: change no file at all (not even the work item); the engine records the evidence and rejects any change in this phase.';;
   HANDOVER) echo 'Record revision, evidence, limitations and the next human decision in the work item.';;
 esac; }
 phase_success(){ case "$1" in
@@ -119,7 +119,7 @@ build_brief(){
     ap='[".loop/work-items/**"]'; fp='["requirements/**"]'
   fi
   card=$(host_card)
-  prompt=$(printf '%s\n\n# Work item %s (file: %s)\n\n%s\n\n# Current loop state\n\n%s\n\n# Node task (%s)\n\n%s\n\nSuccess condition: %s\n\n# Path policy for this node\n\nYou may change only these paths (glob patterns): %s\nFrozen for this node: %s\nEverything else must stay unchanged. For DEFINE, DESIGN and HANDOVER the work item file above is the only file to edit; the adapter protected_paths apply to product code, not to this edit.\n' \
+  prompt=$(printf '%s\n\n# Work item %s (file: %s)\n\n%s\n\n# Current loop state\n\n%s\n\n# Node task (%s)\n\n%s\n\nSuccess condition: %s\n\n# Path policy for this node\n\nYou may change only these paths (glob patterns): %s\nFrozen for this node: %s\nEverything else must stay unchanged. For DEFINE, DESIGN and HANDOVER the work item file above is the only file to edit; the adapter protected_paths apply to product code, not to this edit. VALIDATE and REVIEW change nothing. Do not create cache or build files outside the allowed paths (run python with -B).\n' \
     "$card" "$work" ".loop/work-items/$work.md" "$(cat "$wi")" "$(cat "$state")" "$phase" "$task" "$succ" "$(jq -r 'join(", ")' <<<"$ap")" "$(jq -r 'join(", ")' <<<"$fp")")
   jq -n --arg run "$run_id" --arg node "$(lower "$phase")-$round" --arg gate "$phase" --arg w "$work" \
     --arg p "$phase" --arg task "$task" --arg cap "$cap" --arg succ "$succ" --argjson v "$vids" \
