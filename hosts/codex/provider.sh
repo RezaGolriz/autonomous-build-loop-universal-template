@@ -13,10 +13,10 @@ base=$(jq -er '.prompt' "$brief")
 
 if [[ $phase == REVIEW ]]; then
   shape='{"schema_version":1,"verdict_id":"<id>","run_id":"<brief run_id>","work_item_id":"<brief work_item_id>","phase":"REVIEW","gate_id":"REVIEW","nonce":"<brief nonce>","result":"PASS"|"FAIL","reviewer":"<name>","independent":true,"revision":"<brief revision>","captured_at":"<date-time>","evidence_refs":["<brief refs>"],"findings":[{"severity":"BLOCKING"|"HIGH"|"MEDIUM"|"LOW","category":"requirement"|"design"|"artifact"|"safety","evidence":"<text>","disposition":"OPEN"|"DISMISSED"}]}'
-  mode=(--sandbox read-only)
+  mode=(--sandbox read-only -c approval_policy=never)
 else
   shape='{"schema_version":1,"status":"DONE"|"BLOCKED","defect_class":null|"requirement"|"design"|"artifact","blocker":null|"<text>","notes":"<text>"}'
-  mode=(--full-auto)
+  mode=(--sandbox workspace-write -c approval_policy=never)
 fi
 prompt="$base
 

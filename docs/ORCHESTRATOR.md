@@ -68,6 +68,19 @@ The suite builds a Python CLI fixture, runs the whole happy path
 back to `EXECUTE`, a blocker stops and `resume` continues, a frozen-path change
 fails the gate, a failing verifier blocks, and a locked workspace is refused.
 
+## Try it with a real agent
+
+```bash
+./bootstrap/make-trial-project.sh /path/to/textkit-trial   # tiny, pre-activated Python project
+./engine/orchestrator.sh start --root /path/to/textkit-trial
+./engine/orchestrator.sh loop --root /path/to/textkit-trial --host claude --provider hosts/claude/provider.sh --max-nodes 10
+# or: --host codex --provider hosts/codex/provider.sh   (set CODEX_BIN if codex is not on PATH)
+./engine/render-dashboard.sh --root /path/to/textkit-trial
+```
+
+The trial project is activated by the generator for convenience; real projects
+go through `bootstrap/init.sh` and the activation checklist.
+
 ## Not covered yet
 
 - one work item per run; no queue of work items and no parallelism;
