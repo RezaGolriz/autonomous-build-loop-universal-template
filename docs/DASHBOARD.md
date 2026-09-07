@@ -1,4 +1,40 @@
-# The dashboard
+# HTML dashboard
+
+
+## Open it from chat
+
+> Show the build-loop dashboard for this project.
+
+The agent calls `loop_dashboard` (MCP) or the `dashboard` CLI operation and
+returns `dashboard_url`. Open that local link in your browser. It expires after
+30 minutes; request a new link after expiry. Reload the page to read current
+state. There is no automatic polling.
+
+```bash
+node bin/build-loop.mjs dashboard --root /absolute/target --json
+```
+
+This works before setup, for a paused candidate, and for an active loop. The
+page shows the project, work kind, phase gates, current recorded job, blockers,
+evidence and work item. It distinguishes a candidate from active configuration.
+Job status is a recorded observation, not proof that the process is still alive
+or the work item has passed all gates. This page does not verify the signed
+activation binding; use `status` for that result.
+
+The work-kind and run-mode selectors prepare text to use in chat. They do not
+change an active work item or start a run. Continue in chat to prepare a concrete
+work item, review its scope, and use the normal approval and activation flow.
+
+The local server binds only to `127.0.0.1` and requires the capability embedded
+in its URL. It reads project state and opens no target command or approval form.
+Keep the URL private: it exposes the selected project's status and work-item
+text to anyone on the same machine who has the link. It serves only this page,
+not arbitrary project files.
+
+The monitoring URL is separate from `confirmation_url`, which comes from
+`request-approval`. The dashboard cannot approve setup.
+
+## Export a static HTML file with the shell renderer
 
 The dashboard is one HTML page that shows the state of a run at a glance.
 It is made by a script, from the files the loop writes, and it changes
@@ -11,8 +47,8 @@ nothing.
 ```
 
 Open the file in any browser. Run the script again whenever you want a fresh
-view; it is quick (well under a second) and safe to run while the loop is
-working.
+view; it executes no target commands. A render during a running job is a point-in-time
+view and may read records from adjacent updates.
 
 ## Where the numbers come from
 
@@ -103,7 +139,7 @@ Every record carries the Git revision it was made at and a checksum of the
 logs it refers to. If someone edits a log afterwards, the referee rejects the
 record.
 
-## Limits
+## Static export limits
 
 - The page is static. Re-run the script to refresh; there is no live update.
 - It shows one project (one `--root`). For several projects, render several

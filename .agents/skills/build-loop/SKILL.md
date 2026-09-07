@@ -23,7 +23,7 @@ Optional MCP setup is a separate explicit local configuration.
 
 For a new or unfamiliar target:
 
-1. call inspect and doctor;
+1. call inspect and doctor; use options when choosing a work kind or run mode;
 2. if no active adapter exists, call prepare;
 3. present the exact proposal, commands, protected paths, allowed environment
    variable names, evidence requirements, providers, and probes;
@@ -87,3 +87,20 @@ Missing configuration, verifier, provider authentication, target runtime,
 evidence, authority, or valid state blocks execution. Time, retry, and round
 caps never become success. Planning may continue without a verifier; execution
 may not.
+
+## Loop selection and dashboard
+
+Use options to list supported work kinds and run modes. Translate the user's
+intent into work_kind for prepare or task: feature, defect, maintenance,
+documentation, research, or migration. Present the appropriate acceptance
+criteria and verification; changing kind never removes a gate.
+
+For start, run, or resume, use run_mode="step" for one node or
+run_mode="bounded" for up to 12 nodes. Explicit max_nodes remains available;
+step rejects values other than 1. A completed job is not a completed work item.
+
+When asked to show the dashboard, call dashboard and return dashboard_url as a
+clickable link. It is a read-only local browser view, valid for 30 minutes.
+Reload it for current data. The selector prepares a chat request only; it does
+not change configuration or execute work. The shell HTML renderer remains
+available for static exports.

@@ -1,5 +1,9 @@
 # Hosts and providers
 
+For a step-by-step installation with copyable configuration, start with
+[Installation](../docs/INSTALLATION.md). The sections below describe host and
+provider responsibilities.
+
 A client host is where the human operates the loop. A worker provider is the
 separately installed AI CLI that performs one bounded node. These roles may use
 the same product name but they are not the same connection.

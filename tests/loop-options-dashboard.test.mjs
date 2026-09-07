@@ -1,4 +1,5 @@
 import test from 'node:test';
+import http from 'node:http';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -7,6 +8,9 @@ import { dispatch, operations } from '../control/index.mjs';
 import { resolveRunArgs } from '../control/loop-options.mjs';
 import { renderDashboard } from '../control/dashboard.mjs';
 import { createHandler } from '../mcp/server.mjs';
+
+process.env.BUILD_LOOP_APPROVAL_STORE = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-approval-store-')));
+await fs.chmod(process.env.BUILD_LOOP_APPROVAL_STORE, 0o700);
 
 async function fixture(t) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'loop-dashboard-test-')));
@@ -40,15 +44,15 @@ test('every kind is persisted in prepared work items with fixed gates and specif
 });
 test('dashboard supports empty and candidate projects and escapes untrusted content', async t => {
   const root = await fixture(t);
-  assert.match(await renderDashboard(root, 'test'), /NOT CONFIGURED/);
+  assert.match(await renderDashboard(root, 'dashboard-test-nonce'), /NOT CONFIGURED/);
   await dispatch(root, 'demo', { kind: 'docs' });
   const file = path.join(root, '.loop/candidate/work-items/WI-001.md');
   await fs.appendFile(file, '\n<script>alert("unsafe")</script>');
-  const html = await renderDashboard(root, 'test');
+  const html = await renderDashboard(root, 'dashboard-test-nonce');
   assert.match(html, /SETUP CANDIDATE/); assert.match(html, /&lt;script&gt;/);
   assert.ok(!html.includes('<script>alert('));
   await fs.rename(file, file + '.backup'); await fs.symlink(file + '.backup', file);
-  await assert.rejects(renderDashboard(root, 'test'), /symlink/);
+  await assert.rejects(renderDashboard(root, 'dashboard-test-nonce'), /symlink/);
 });
 test('local dashboard HTTP stays read-only, checks capability and host, and refreshes data', async t => {
   const root = await fixture(t);
@@ -60,7 +64,7 @@ test('local dashboard HTTP stays read-only, checks capability and host, and refr
     assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
     assert.equal((await fetch(new URL('/', url))).status, 404);
     assert.equal((await fetch(url, { method: 'POST' })).status, 403);
-    assert.equal((await fetch(url, { headers: { Host: 'evil.invalid' } })).status, 403);
+    assert.equal(await new Promise((resolve, reject) => { const req = http.get(url, { headers: { Host: 'evil.invalid' } }, res => { res.resume(); resolve(res.statusCode); }); req.on('error', reject); }), 403);
     assert.equal((await fetch(url, { headers: { Origin: 'https://evil.invalid' } })).status, 403);
   }
   assert.deepEqual(await fs.readdir(root), []);
@@ -75,4 +79,13 @@ test('MCP exposes loop selection and dashboard operations with fixed project bin
   assert.ok(list.find(tool => tool.name === 'loop_prepare').inputSchema.properties.work_kind.enum.includes('defect'));
   const reply = await handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'loop_options', arguments: {} } });
   assert.equal(reply.result.structuredContent.run_modes.step.max_nodes, 1);
+});
+test('dashboard rejects oversized, malformed and unsafe script inputs', async t => {
+  const root = await fixture(t);
+  await assert.rejects(renderDashboard(root, '\" onload=\"bad'), /nonce/);
+  await fs.mkdir(path.join(root, '.loop'));
+  await fs.writeFile(path.join(root, '.loop/state.json'), '[]');
+  await assert.rejects(renderDashboard(root, 'dashboard-test-nonce'), /object record/);
+  await fs.writeFile(path.join(root, '.loop/state.json'), 'x'.repeat(1024 * 1024 + 1));
+  await assert.rejects(renderDashboard(root, 'dashboard-test-nonce'), /limit/);
 });

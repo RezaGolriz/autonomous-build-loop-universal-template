@@ -40,14 +40,19 @@ test('documented demo survives MCP EOF, passes all six gates, and permits a new 
     const activated = mcp(root, 'activate', {}); const setup = await completed(root, activated.job.job_id);
     assert.equal(setup.job.status, 'COMPLETED', JSON.stringify(setup)); assert.equal(setup.activation.valid, true);
     const startArgs = JSON.parse(await readFile(join(repo, 'docs/examples/start-demo.json')));
-    const started = mcp(root, 'start', startArgs); const finished = await completed(root, started.job.job_id);
-    assert.equal(finished.job.status, 'COMPLETED', JSON.stringify(finished)); assert.equal(finished.job.nodes_completed, 6);
+    const single = mcp(root, 'start', { request_id: 'single-node', run_mode: 'step' });
+    const stepped = await completed(root, single.job.job_id);
+    assert.equal(stepped.job.nodes_completed, 1);
+    assert.equal(stepped.job.max_nodes, 1);
+    const started = mcp(root, 'run', { request_id: startArgs.request_id, run_mode: 'bounded' }); const finished = await completed(root, started.job.job_id);
+    assert.equal(finished.job.status, 'COMPLETED', JSON.stringify(finished)); assert.equal(finished.job.nodes_completed, 5);
     assert.equal(finished.state.phase, 'HANDOVER'); assert.equal(finished.state.run_status, 'WAITING_FOR_HUMAN');
     assert.ok(Object.values(finished.state.gates).every(gate => gate.status === 'PASSED'));
     assert.equal(mcp(root, 'status', { job_id: started.job.job_id }).job.job_id, started.job.job_id);
     const handover = mcp(root, 'handover', JSON.parse(await readFile(join(repo, 'docs/examples/handover-demo.json'))));
     assert.equal(handover.status, 'COMPLETED'); assert.equal(handover.external_action_performed, false);
-    const task = mcp(root, 'task', { request: 'Clarify the demo guide.', acceptance_criteria: ['The guide keeps its heading.'], out_of_scope: ['Publishing.'], allowed_paths: ['docs/guide.md'], frozen_paths: ['tests/check-docs.mjs'] });
+    const task = mcp(root, 'task', { work_kind: 'documentation', request: 'Clarify the demo guide.', acceptance_criteria: ['The guide keeps its heading.'], out_of_scope: ['Publishing.'], allowed_paths: ['docs/guide.md'], frozen_paths: ['tests/check-docs.mjs'] });
+    assert.match(await readFile(join(root, '.loop/work-items', task.work_item_id + '.md'), 'utf8'), /Kind: documentation/);
     assert.equal(task.status, 'PAUSED'); assert.notEqual(task.work_item_id, finished.state.work_item_id);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

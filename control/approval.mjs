@@ -26,6 +26,8 @@ export async function recordTrustedApproval(root, setupDigest, channel, requestI
 export async function approvalSummary(root, plan) {
   const adapter = await readJson(path.join(root, '.loop', 'candidate', 'project.adapter.json'));
   const state = await readJson(path.join(root, '.loop', 'candidate', 'state.json'));
+  const workText = await fs.readFile(path.join(root, '.loop', 'candidate', 'work-items', `${state.work_item_id}.md`), 'utf8');
+  const workKind = /^Kind: (.+)$/m.exec(workText)?.[1] || 'unspecified';
   const hostFile = path.join(root, '.loop', 'host.local.json');
   const host = await exists(hostFile) ? await readJson(hostFile, 'host.local.json') : null;
   const provider = host ? {
@@ -42,6 +44,7 @@ export async function approvalSummary(root, plan) {
     adapter,
     target: adapter.target,
     provider,
+    work_kind: workKind,
     request: plan.requested_scope.request,
     acceptance_criteria: plan.requested_scope.acceptance_criteria,
     out_of_scope: plan.requested_scope.out_of_scope,

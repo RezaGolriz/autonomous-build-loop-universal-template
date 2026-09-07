@@ -1,221 +1,152 @@
-# Universal Autonomous Build Loop
+# Universal Build Loop
 
-A small, auditable way to let an AI coding agent (Claude, Codex, or any other
-agent) build software **without trusting its own word**.
+Build Loop turns a coding request into a controlled, six‑phase run: **DEFINE → DESIGN → EXECUTE → REVIEW → VALIDATE → HANDOVER**. You talk to it in plain language from Claude Desktop or the Codex app. It plans, asks for your approval, then works in small, reviewable steps.
 
-The idea in one sentence: **the AI does the work, a referee checks the work,
-and a human makes the decisions.**
+Runs on macOS and Linux. Native Windows is not supported. WSL has not been validated.
 
-![AI development loop with agent, runner, independent review, and human control](docs/images/ai-development-loop.svg)
+---
 
-## The problem this solves
+## Two folders — keep them straight
 
-AI agents can write code, run tests, and say "done". But "done" from the agent
-is just a claim. Did the tests really run? Did the agent change files it was
-not supposed to touch? Did it quietly loosen the requirements to make its own
-job easier?
-
-This repository puts a fixed process around the agent so that every claim is
-backed by evidence that the agent did not produce itself.
-
-## How it works, in plain words
-
-Every piece of work goes through the same six steps. No step can be skipped.
-
-| Step | What happens | Who decides it passed |
-|---|---|---|
-| 1. DEFINE | Turn the request into testable acceptance criteria | The referee checks the criteria are written down |
-| 2. DESIGN | Plan the change in small, provable slices | The referee checks the plan is written down |
-| 3. EXECUTE | The agent writes the code, one slice at a time | The referee runs your test command and checks which files changed |
-| 4. REVIEW | A **second, fresh** agent reads the exact change and gives a verdict | The referee checks the verdict is authentic and passes |
-| 5. VALIDATE | The referee runs the acceptance tests again | The referee |
-| 6. HANDOVER | The result, the evidence, and the open decisions go to a human | A human |
-
-If a step fails, the work goes back to the step that owns the problem
-(a wrong requirement goes back to DEFINE, a wrong plan to DESIGN, a code bug
-to EXECUTE). If a decision is missing, the run stops and asks a human. There
-are limits on rounds, retries, and wall-clock time, so a run can never spin
-forever.
-
-```mermaid
-flowchart LR
-    A[DEFINE] --> B[DESIGN] --> C[EXECUTE] --> D[REVIEW] --> E[VALIDATE] --> F[HANDOVER]
-    D -. defect .-> A
-    D -. defect .-> B
-    D -. defect .-> C
-    E -. defect .-> C
-```
-
-## Who does what
-
-| Role | Job | What it is not allowed to do |
-|---|---|---|
-| **Agent** (Claude, Codex, …) | Writes the criteria, the plan, the code, the handover notes | Cannot mark its own work as passed |
-| **Reviewer** (a fresh agent, ideally a different one) | Reads the exact change and the evidence, returns a verdict | Cannot change any file |
-| **Referee** (`engine/reference-engine.sh`) | Runs the test commands, records evidence with checksums, checks which files changed, validates verdicts, moves the state forward | Does not write code |
-| **Conductor** (`engine/orchestrator.sh`) | Calls the agent for each step and hands the results to the referee | Makes no pass/fail decisions |
-| **Human** | Activates a project, resolves blockers, decides what happens after handover | Cannot be bypassed by any setting |
-
-Merging, releasing, deploying, and touching secrets are always human actions.
-The loop stops at HANDOVER.
-
-![The fixed workflow is separated from the project technology and agent host](docs/images/three-layers.svg)
-
-## What is in the box
-
-| Folder | What it contains |
+| | What it is |
 |---|---|
-| `core/` | The fixed workflow and the rules (the contract) |
-| `spec/schemas/` | Machine-readable formats for state, evidence, verdicts, and configuration |
-| `engine/reference-engine.sh` | The referee |
-| `engine/orchestrator.sh` | The conductor: runs one work item through all six steps |
-| `engine/render-dashboard.sh` | A one-page HTML dashboard of a run (status, steps, evidence, blockers) |
-| `hosts/` | Agent adapters: `claude/` (Claude Code CLI), `codex/` (Codex CLI), `mock/` (for tests) |
-| `bootstrap/` | Safe project setup (`init.sh`) and a ready-made trial project (`make-trial-project.sh`) |
-| `profiles/` | Starting points for CLI, API, library, docs, desktop, service, automation, and data/AI projects |
-| `tests/` | Test suites for the referee, the conductor, the dashboard, and the setup |
-| `docs/` | Longer explanations |
+| **Package folder** | This checkout — the Build Loop source you install *from*. You build here once. |
+| **Target‑project folder** | The repository you actually want changed. Build Loop reads and edits **this** one. |
 
-The process works for any language or stack. Python, Go, Rust, Java, Node,
-or plain documentation: only the configuration changes, never the process.
+For first use, choose a separate target folder. Below, `/absolute/path/to/package-root` means the full path to this checkout on your machine. Replace it with your real path — don't guess.
 
-## Try it in five minutes
+## Two pieces — also keep them straight
 
-You need a Unix-like machine (macOS or Linux) with Bash 3.2+, `jq`, Git,
-Perl, and Python 3 for the trial project.
+- **The plugin / extension** is the *installation*. It gives your app the Build Loop tools.
+- **The worker CLI** is *separate*. Build Loop drives an already‑installed, already‑signed‑in **Codex CLI** or **Claude Code CLI** to do the actual editing. Installing the plugin does not install or log in the worker.
 
-**1. Check the box and run the tests**
+## Prerequisites
 
-```bash
-git clone https://github.com/RezaGolriz/autonomous-build-loop-universal-template.git
-cd autonomous-build-loop-universal-template
-./bootstrap/check-prerequisites.sh
-./tests/run-conformance.sh      # the referee   (32 checks)
-./tests/run-orchestrator.sh     # the conductor (15 checks, uses the mock agent)
-./tests/run-dashboard.sh        # the dashboard (5 checks)
-```
+- **Bash 3.2+, `jq`, `git`, `perl`** available in your shell.
+- **Node.js 22+, `npm`, and `zip`** — needed to *build* the package. The Codex plugin and direct MCP also require Node.js 22+ at runtime.
+- A **worker CLI you have already authenticated**: Codex CLI or Claude Code CLI. Files existing on disk is not proof; you are set only if you have actually run the CLI and signed in.
 
-**2. Run a real agent on a tiny trial project**
+Claude Desktop ships its own Node runtime for the extension, but the Unix tools and the authenticated worker above are still required.
 
-The trial project is a two-file Python package. The task for the agent is to
-add a `slugify()` function with tests.
+---
 
-```bash
-./bootstrap/make-trial-project.sh ~/textkit-trial
-./engine/orchestrator.sh start --root ~/textkit-trial
-```
+## Install in Codex (easiest route)
 
-With Claude Code as the agent:
+### Step 1 — Build and install the plugin
 
-```bash
-./engine/orchestrator.sh loop --root ~/textkit-trial \
-  --host claude --provider hosts/claude/provider.sh --max-nodes 12
-```
+1. Open the **package folder** (this checkout) in the Codex app.
+2. Paste this request into the chat:
 
-With Codex as the agent (set `CODEX_BIN` if `codex` is not on your PATH):
+   > Please build this template’s local plugin and install it into Codex. Check the prerequisites and tell me what is missing. Do not initialize a loop or run target-project commands.
 
-```bash
-./engine/orchestrator.sh loop --root ~/textkit-trial \
-  --host codex --provider hosts/codex/provider.sh --max-nodes 12
-```
+3. Let the agent run the build and install. It may execute:
 
-Recommended: let one agent build and a different one review. In our trials
-this was the fastest and cleanest combination.
+   ```bash
+   npm run bundle
+   codex plugin marketplace add "/absolute/path/to/package-root/dist/codex"
+   codex plugin add build-loop@build-loop-local
+   ```
 
-```bash
-./engine/orchestrator.sh loop --root ~/textkit-trial \
-  --host codex  --provider hosts/codex/provider.sh \
-  --review-host claude --review-provider hosts/claude/provider.sh --max-nodes 12
-```
+**Expected result:** the bundle is produced, both `codex plugin` commands succeed, and the agent reports concretely which prerequisites are present or missing (for example: `jq` found, Codex CLI signed in, `perl` missing).
 
-**3. Look at the result**
+**Manual fallback:** run the three commands above yourself in a terminal, from the package folder, substituting your real absolute path.
 
-```bash
-./engine/orchestrator.sh status --root ~/textkit-trial      # JSON summary
-./engine/render-dashboard.sh   --root ~/textkit-trial      # writes .loop/dashboard.html
-open ~/textkit-trial/.loop/dashboard.html                   # macOS; use xdg-open on Linux
-```
+### Step 2 — Success check and first real use
 
-The dashboard shows the current step, which gates passed, every piece of
-evidence with its result, open blockers, and the work item. It is a plain
-static file: no JavaScript, no server, no network. How to read it:
-[docs/DASHBOARD.md](docs/DASHBOARD.md). The ways to drive the loop (one
-step, many steps, one or two agents, the fake agent for testing):
-[docs/LOOP-MODES.md](docs/LOOP-MODES.md).
+1. Open your **target‑project folder** in Codex as a **new task**. This new task is where you will use the loop for your project.
+2. Ask, in plain language:
 
-If the run stopped with a blocker, read `.loop/blockers.md`, tick the box
-(`- [x]`), and continue:
+   > Use Build Loop to inspect this repository, check its prerequisites, and show the available work kinds and run modes. Do not run project commands or initialize anything yet.
+
+**Expected result:** Codex invokes a named Build Loop tool or skill and answers with **facts about your repository** — detected project signals, a possible verification command, provider readiness, and available work kinds. An unknown project or missing verifier should be reported clearly. Generic prose alone does not confirm installation: ask Codex to invoke the installed Build Loop skill and check `codex plugin list` if it cannot.
+
+---
+
+## Install in Claude Desktop
+
+Claude Desktop installs a prebuilt `.mcpb` file. These instructions start from source, so **build the file first**. If you already received a built bundle from a maintainer, skip to Step 2.
+
+### Step 1 — Build the `.mcpb`
+
+Either open the **package folder** in Codex and ask:
+
+> Please build the Claude Desktop extension bundle for this project and tell me the exact file path it produced.
+
+Or run it yourself from the package folder:
 
 ```bash
-./engine/orchestrator.sh resume --root ~/textkit-trial
-./engine/orchestrator.sh loop   --root ~/textkit-trial --host codex --provider hosts/codex/provider.sh
+npm run bundle
 ```
 
-## Use it on your own project
+**Expected result:** the file `dist/build-loop.mcpb` exists inside the package folder. Note its full path.
 
-```bash
-./bootstrap/init.sh /path/to/your/project
-```
+### Step 2 — Install the extension
 
-The initializer looks at your project safely (it reads file names and known
-manifest fields, it never runs anything), suggests a configuration, and asks
-you to confirm every command, path, and evidence requirement. It writes a
-**paused** candidate under `.loop/candidate/` together with an activation
-checklist. Nothing runs until you have gone through that checklist and moved
-the files to their active names. That is deliberate: the agent must never be
-able to activate itself.
+1. Open **Claude Desktop → Settings → Extensions → Advanced settings → Install Extension…**
+2. Choose the `dist/build-loop.mcpb` file from Step 1.
+3. When asked for **`project_root`**, enter the **absolute path to your target‑project folder**. It must already exist.
+4. Enable the extension.
 
-![Safe initialization recommendation flow](docs/images/initialization-flow.svg)
+**Expected result:** Build Loop appears in the Extensions list as enabled, with your `project_root` shown.
 
-Then write your first work item in `.loop/work-items/` (a template is in
-`template/work-items/`), and start the loop as shown above. The
-[examples](docs/examples/README.md) walk through this for a web shop, an API,
-an ESP32 firmware, and a web app.
+### Step 3 — Success check and first real use
 
-## What the referee guarantees
+1. Start a **new chat**.
+2. Ask:
 
-- Only commands declared in your configuration are ever run, with a timeout
-  and a minimal environment.
-- Every command's output is stored with a checksum. Evidence that was edited
-  afterwards is rejected.
-- Files outside the allowed paths, frozen files, and protected files cannot
-  change without failing the step.
-- The reviewer gets a one-time challenge code (a nonce). A verdict without the
-  right code, or a replayed verdict, is rejected.
-- The reviewer never sees the builder's reasoning, only the exact change and
-  the evidence.
-- State only moves forward through legal transitions. Reaching a limit means
-  "blocked", never "passed".
+   > Use Build Loop to inspect my selected project, check its prerequisites, and show the available work kinds and run modes. Do not run project commands or initialize anything yet.
 
-## What it does not do
+**Expected result:** Claude calls a named Build Loop tool and reports real details of the project at your `project_root`, plus a clear list of anything missing (worker CLI not authenticated, `jq` absent, and so on). If the reply is generic advice with no tool call, check that `loop_inspect`, `loop_doctor`, and `loop_options` appear among the connected tools.
 
-- It does not merge, release, deploy, migrate data, or read secrets. Those
-  stay with you.
-- It runs one work item at a time; there is no queue and no parallelism yet.
-- It cannot make an agent smart. It makes the agent's work bounded,
-  inspectable, and repeatable.
+These menu steps follow [Claude’s official installation guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop). The in-app installation has not been tested end to end here.
 
-## Status
+> Prefer raw MCP JSON configuration instead of the plugin/extension? See [docs/INSTALLATION.md](docs/INSTALLATION.md). Choose the plugin/extension **or** a direct MCP entry; installing both is not required.
 
-| Capability | Status |
-|---|---|
-| Six-step workflow, schemas, referee, test vectors | Implemented and tested |
-| Conductor: one work item through all six steps, per-slice path rules, blockers, resume | Implemented and tested |
-| Agents: Claude Code CLI, Codex CLI, mock; separate builder and reviewer | Implemented; verified in real end-to-end runs |
-| Dashboard | Implemented and tested |
-| Safe project setup (`init.sh`) | Implemented and tested |
-| Multiple work items, parallel runs | Not yet |
-| Delivery (merge, release, deploy) | Deliberately outside the loop |
+---
+
+## How a run actually works
+
+1. **Prepare.** You describe the work and choose a builder and independent reviewer. The agent configures those providers and prepares the scope, verification commands, and limits. Build Loop returns a **paused candidate** for you to read. It does **not** return a dashboard link at this point.
+2. **Request approval.** The request‑approval step (`loop_request_approval`) returns a **confirmation URL**. **A human must open and submit it personally.** The agent cannot do this for you.
+3. **Activate.** Build Loop runs positive and negative probes against a **disposable copy** of your project, then inspects whether the job completed as expected.
+4. **Start.** You choose the **run mode**.
+5. **Dashboard.** A separate dashboard request returns a **read‑only** dashboard URL. It **expires after 30 minutes**. Reload it for current state; request a fresh link after expiry. The dashboard is never used for approval.
+
+### Run modes
+
+- **step** — advances at most **one** node, then stops.
+- **bounded** — advances up to a limit (**default 12** nodes) and stops earlier when blocked, at handover, or at a configured limit.
+
+**REVIEW is mandatory in every mode.** More detail: [docs/LOOP-MODES.md](docs/LOOP-MODES.md).
+
+### Kinds of work
+
+**Feature, Bug fix, Refactoring / maintenance, Documentation, Research, or Migration preparation.** Choose in chat or with the dashboard selectors. Every kind retains review and validation; migration execution needs separate authority.
+
+### Talking to it
+
+Start in plain language, for example:
+
+> Prepare a bug fix for the failing login test. Keep the existing API unchanged.
+> Show the proposal first; after approval, run one step and show the dashboard.
+
+The agent translates the request into tool inputs and asks for any missing decisions.
+Dashboard selectors can also prepare a request for you to copy into chat.
+
+---
+
+## The shell orchestrator
+
+The original shell entry point remains fully supported alongside the plugin, including `engine/render-dashboard.sh` for local dashboard rendering. See [docs/SHELL-ORCHESTRATOR.md](docs/SHELL-ORCHESTRATOR.md).
+
+---
 
 ## More documentation
 
-- [Kinds of loops and how to run them](docs/LOOP-MODES.md)
-- [The dashboard](docs/DASHBOARD.md)
-- [Examples: web shop, API, ESP32 firmware, web app](docs/examples/README.md)
-- [The orchestrator in detail](docs/ORCHESTRATOR.md)
-- [Why and how the loop works](docs/AI-DEVELOPMENT-LOOP.md)
-- [Step-by-step quickstart](docs/QUICKSTART.md)
-- [Architecture and boundaries](docs/ARCHITECTURE.md)
-- [Agent adapters and the provider contract](hosts/README.md)
-- [Adding profiles and adapters](docs/EXTENDING.md)
-- [Bootstrap protocol](bootstrap/README.md)
+- [docs/INSTALLATION.md](docs/INSTALLATION.md) — every install path, including raw MCP JSON
+- [docs/LOOP-MODES.md](docs/LOOP-MODES.md) — step and bounded modes, gates
+- [docs/DASHBOARD.md](docs/DASHBOARD.md) — read‑only dashboard and link expiry
+- [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) — the six phases in depth
+- [docs/VALIDATION.md](docs/VALIDATION.md) — probes, disposable copies, completion checks
+- [docs/SHELL-ORCHESTRATOR.md](docs/SHELL-ORCHESTRATOR.md) — shell usage
+- [docs/examples/README.md](docs/examples/README.md) — worked examples

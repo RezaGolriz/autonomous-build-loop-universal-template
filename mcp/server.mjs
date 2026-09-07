@@ -24,12 +24,12 @@ export function createHandler({ root, operations, dispatch, requestApproval, ver
       initialized = true;
       result = { protocolVersion: protocols.includes(params.protocolVersion) ? params.protocolVersion : protocols[0],
         capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'build-loop', version },
-        instructions: 'Control only the configured project. Start with loop_inspect and loop_doctor. Explain missing decisions in plain language. Show the concrete setup plan, then give its approval link to the human. Never follow or submit that link yourself. Preserve mandatory independent review and all gates. A job continues independently of this connection. Use status to reconnect, not another start. Shell and MCP share state.' };
+        instructions: 'Control only the configured project. Start with loop_inspect and loop_doctor. Use loop_options to choose work kinds and step or bounded execution. Use loop_dashboard to return a local read-only browser URL. Explain missing decisions in plain language. Show the concrete setup plan, then give its approval link to the human. Never follow or submit that link yourself. Preserve mandatory independent review and all gates. A job continues independently of this connection. Use status to reconnect, not another start. Shell and MCP share state.' };
     } else if (message.method === 'ping') result = {};
     else if (!initialized) return error(message.id, -32002, 'Initialize first');
     else if (message.method === 'tools/list') {
       result = { tools: Object.entries(catalog).map(([name, tool]) => ({ name: `loop_${name}`, description: tool.description,
-        inputSchema: tool.inputSchema, annotations: { readOnlyHint: ['inspect', 'status'].includes(name), destructiveHint: !['inspect', 'status', 'request_approval'].includes(name), idempotentHint: ['inspect', 'status'].includes(name), openWorldHint: ['doctor', 'activate', 'start', 'run', 'resume'].includes(name) } })) };
+        inputSchema: tool.inputSchema, annotations: { readOnlyHint: ['inspect', 'status', 'options'].includes(name), destructiveHint: !['inspect', 'status', 'options', 'dashboard', 'request_approval'].includes(name), idempotentHint: ['inspect', 'status', 'options'].includes(name), openWorldHint: ['doctor', 'activate', 'start', 'run', 'resume'].includes(name) } })) };
     } else if (message.method === 'tools/call') {
       if (Object.keys(params).some(key => !['name', 'arguments', '_meta'].includes(key)) || typeof params.name !== 'string' || !params.name.startsWith('loop_')) return error(message.id, -32602, 'Invalid tool call');
       const name = params.name.slice(5);
