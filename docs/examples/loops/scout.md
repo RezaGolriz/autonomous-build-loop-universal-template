@@ -166,4 +166,5 @@ A scout refuses to run while a managed job is running.
 - A promoted item still needs a human `authorize` before any
   [cadence loop](cadence.md) may start it, and a human `accept` at the end.
 
-Back to the list: [the four walkthroughs](README.md).
+Next: two agents instead of one — [one builds, the other reviews](two-agents.md).
+Back to the list: [all the walkthroughs](README.md).

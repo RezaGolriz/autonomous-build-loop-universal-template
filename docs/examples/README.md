@@ -23,20 +23,27 @@ the prompts can be shared directly with either client.
 
 ## Loop walkthroughs
 
-The recipes above show how to *shape* a project. The walkthroughs below show how
-to *run* one, in each of the four kinds of loop, again with a chat variant and a
-command-line variant. Each uses one of the recipes.
+The recipes above show how to *shape* a project. The ten walkthroughs below show
+how to *run* one, again with a chat variant and a command-line variant. Each uses
+one of the recipes.
 
-| Walkthrough | Kind of loop | Recipe it uses |
+| Walkthrough | What it shows | Recipe it uses |
 |---|---|---|
 | [Goal loop](loops/goal.md) | One item, carried to HANDOVER, then `check` and `accept` | [Web shop](web-shop.md) |
+| [Bug fix](loops/defect.md) | `work_kind` `defect`, a narrow scope and `stop_on_first_failure` | [Web shop](web-shop.md) |
+| [Documentation](loops/documentation.md) | The same six phases for text, with `docs` as the only allowed path | [JSON API](api.md) |
+| [Two agents](loops/two-agents.md) | One provider builds, a different one reviews | [Web app](web-app.md) |
 | [Backlog loop](loops/backlog.md) | A queue: `backlog_add`, `authorize`, `accept` | [Web app](web-app.md) |
 | [Cadence loop](loops/cadence.md) | A timer calls `tick` | [ESP32 firmware](esp32-embedded.md) |
+| [Weekend loop](loops/weekend.md) | A queue and a timer together, and how to stop them | [ESP32 firmware](esp32-embedded.md) |
 | [Scout loop](loops/scout.md) | `scout` writes proposals you `promote` | [JSON API](api.md) |
+| [Full cycle](loops/full-cycle.md) | Scout, promote, authorize, cadence, accept, end to end | [JSON API](api.md) |
+| [Dry run](loops/dry-run.md) | Every kind with the mock provider — no AI, no cost | a throwaway trial project |
 
 Start at [loops/README.md](loops/README.md), which explains the shared `check`
 output and what is never automatic in any of them. The concepts behind the four
-kinds are in [LOOP-MODES.md](../LOOP-MODES.md).
+kinds are in [LOOP-MODES.md](../LOOP-MODES.md), and where the ideas come from is
+in [SOURCES.md](../SOURCES.md).
 
 ## Chat variant: common setup
 

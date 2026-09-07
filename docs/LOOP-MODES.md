@@ -15,7 +15,7 @@ piece of work starts, and where the work comes from.
 | **Cadence / schedule loop** | A timer calls one operation again and again, inside limits you wrote down. | `tick` |
 | **Scout loop** | Discovery: what is worth doing here at all? Proposals land in an inbox. | `scout`, `inbox_list`, `promote`, `discard` |
 
-Step-by-step walkthroughs on real example projects:
+Ten step-by-step walkthroughs on real example projects:
 [docs/examples/loops/README.md](examples/loops/README.md).
 
 They combine. A normal week is: a scout run once in a while, a backlog you
@@ -384,3 +384,15 @@ stands for the absolute path to your target-project folder.
 
 Keep user-facing prompts in ordinary language. Describe the work plainly; the
 mode fields carry the control settings.
+
+## Where these ideas come from
+
+The four kinds of loop and the shared next-steps memory come from the public
+"loop engineering" discussion — a Builder that writes, a Scout that finds work,
+an Orchestrator that keeps the cycle turning. What this template adds is the same
+six phases for every kind, an independent referee, and human-only acceptance and
+authorization, because, as Sonar puts it, loop engineering without verification
+is just automation.
+
+The pages behind that, with one line each on what they are for, are in
+[SOURCES.md](SOURCES.md).

@@ -202,9 +202,12 @@ you to look at. Verified success is a recorded review verdict of `PASS`
 together with a passed VALIDATE gate — `check` reports the verdict separately
 as `judge_verdict` so the two are never confused.
 
-Full explanation: [docs/LOOP-MODES.md](docs/LOOP-MODES.md). Step‑by‑step
+Full explanation: [docs/LOOP-MODES.md](docs/LOOP-MODES.md). Ten step‑by‑step
 walkthroughs on the example projects, in chat and on the command line:
-[docs/examples/loops/README.md](docs/examples/loops/README.md).
+[docs/examples/loops/README.md](docs/examples/loops/README.md) — including a
+five‑minute [dry run](docs/examples/loops/dry-run.md) with the mock provider that
+costs nothing. Where these ideas come from:
+[docs/SOURCES.md](docs/SOURCES.md).
 
 ### Status
 
@@ -354,4 +357,5 @@ The original shell entry point remains fully supported alongside the plugin, inc
 - [docs/VALIDATION.md](docs/VALIDATION.md) — probes, disposable copies, completion checks
 - [docs/SHELL-ORCHESTRATOR.md](docs/SHELL-ORCHESTRATOR.md) — shell usage
 - [docs/examples/README.md](docs/examples/README.md) — worked examples
-- [docs/examples/loops/README.md](docs/examples/loops/README.md) — goal, backlog, cadence and scout walkthroughs
+- [docs/examples/loops/README.md](docs/examples/loops/README.md) — ten step‑by‑step walkthroughs, from a five‑minute dry run to the full cycle
+- [docs/SOURCES.md](docs/SOURCES.md) — sources and further reading, and how this template relates to them
