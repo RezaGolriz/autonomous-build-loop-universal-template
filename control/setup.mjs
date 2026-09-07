@@ -1,3 +1,4 @@
+import { validateKind, workKinds } from './loop-options.mjs';
 import { signHostConfiguration, verifyApproval } from './approval-store.mjs';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
@@ -109,9 +110,9 @@ function gates() {
 const quoteBlock = (value) => value.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
 const oneLine = (value) => value.replace(/[\r\n]+/g, ' ').trim();
 
-function workItem({ id, request, acceptance_criteria, out_of_scope, allowed_paths, frozen_paths = [] }) {
+function workItem({ id, request, acceptance_criteria, out_of_scope, allowed_paths, frozen_paths = [], work_kind = 'feature' }) {
   const title = request.split(/\r?\n/, 1)[0].slice(0, 120);
-  return `# ${id}: ${oneLine(title)}\n\nKind: feature\n\n## Outcome\n\n${quoteBlock(request)}\n\n## Acceptance criteria\n\n${acceptance_criteria.map((item, i) => `- AC-${i + 1}: ${oneLine(item)}`).join('\n')}\n\n## Out of scope\n\n${out_of_scope.map((item) => `- ${oneLine(item)}`).join('\n')}\n\n## Constraints and invariants\n\n- Follow the project adapter and universal loop contract.\n\n## Design\n\n## Execution slices\n\n| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |\n|---|---|---|---|---|\n| 1 | ${allowed_paths.map((item) => `\`${item}\``).join(', ')} | ${frozen_paths.map((item) => `\`${item}\``).join(', ') || 'none'} | configured adapter commands | configured runner evidence |\n\n## Independent review\n\n## Validation\n\n## Handover\n`;
+  return `# ${id}: ${oneLine(title)}\n\nKind: ${validateKind(work_kind)}\n\n## Outcome\n\n${quoteBlock(request)}\n\n## Acceptance criteria\n\n${acceptance_criteria.map((item, i) => `- AC-${i + 1}: ${oneLine(item)}`).join('\n')}\n\n## Out of scope\n\n${out_of_scope.map((item) => `- ${oneLine(item)}`).join('\n')}\n\n## Constraints and invariants\n\n- Follow the project adapter and universal loop contract.\n- ${workKinds[validateKind(work_kind)].guidance}\n\n## Design\n\n## Execution slices\n\n| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |\n|---|---|---|---|---|\n| 1 | ${allowed_paths.map((item) => `\`${item}\``).join(', ')} | ${frozen_paths.map((item) => `\`${item}\``).join(', ') || 'none'} | configured adapter commands | configured runner evidence |\n\n## Independent review\n\n## Validation\n\n## Handover\n`;
 }
 
 export async function distributionHashes() {

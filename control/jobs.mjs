@@ -1,3 +1,4 @@
+import { validateKind, workKinds } from './loop-options.mjs';
 import { spawn } from 'node:child_process';
 import { constants, promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -137,7 +138,7 @@ function blankGates() { return Object.fromEntries(['DEFINE', 'DESIGN', 'EXECUTE'
 const quoteBlock = (value) => value.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
 const oneLine = (value) => value.replace(/[\r\n]+/g, ' ').trim();
 function renderWorkItem(id, args) {
-  return `# ${id}: ${oneLine(args.request.split(/\r?\n/, 1)[0].slice(0, 120))}\n\nKind: feature\n\n## Outcome\n\n${quoteBlock(args.request)}\n\n## Acceptance criteria\n\n${args.acceptance_criteria.map((v, i) => `- AC-${i + 1}: ${oneLine(v)}`).join('\n')}\n\n## Out of scope\n\n${args.out_of_scope.map((v) => `- ${oneLine(v)}`).join('\n')}\n\n## Constraints and invariants\n\n- Preserve the approved adapter, workflow, and external-action boundaries.\n\n## Design\n\n## Execution slices\n\n| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |\n|---|---|---|---|---|\n| 1 | ${args.allowed_paths.map((v) => `\`${v}\``).join(', ')} | ${(args.frozen_paths || []).map((v) => `\`${v}\``).join(', ') || 'none'} | configured adapter commands | runner evidence |\n\n## Independent review\n\n## Validation\n\n## Handover\n`;
+  return `# ${id}: ${oneLine(args.request.split(/\r?\n/, 1)[0].slice(0, 120))}\n\nKind: ${validateKind(args.work_kind)}\n\n## Outcome\n\n${quoteBlock(args.request)}\n\n## Acceptance criteria\n\n${args.acceptance_criteria.map((v, i) => `- AC-${i + 1}: ${oneLine(v)}`).join('\n')}\n\n## Out of scope\n\n${args.out_of_scope.map((v) => `- ${oneLine(v)}`).join('\n')}\n\n## Constraints and invariants\n\n- Preserve the approved adapter, workflow, and external-action boundaries.\n- ${workKinds[validateKind(args.work_kind)].guidance}\n\n## Design\n\n## Execution slices\n\n| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |\n|---|---|---|---|---|\n| 1 | ${args.allowed_paths.map((v) => `\`${v}\``).join(', ')} | ${(args.frozen_paths || []).map((v) => `\`${v}\``).join(', ') || 'none'} | configured adapter commands | runner evidence |\n\n## Independent review\n\n## Validation\n\n## Handover\n`;
 }
 
 export async function createTask(root, args) {

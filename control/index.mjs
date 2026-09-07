@@ -1,3 +1,5 @@
+import { loopOptions, resolveRunArgs } from './loop-options.mjs';
+import { openDashboard } from './dashboard.mjs';
 import { ControlError, publicError, resolveRoot } from './common.mjs';
 import { requestApproval as approvalRequest } from './approval.mjs';
 import { createDemo, inspectProject, prepareProject } from './setup.mjs';
@@ -18,6 +20,8 @@ export async function dispatch(root, operation, args = {}) {
     if (operation === 'status' && args.job_id !== undefined && (typeof args.job_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(args.job_id))) throw new ControlError('INVALID_INPUT', 'job_id is invalid');
     if (operation === 'handover' && (typeof args.note !== 'string' || !args.note.trim())) throw new ControlError('INVALID_INPUT', 'note is required');
     switch (operation) {
+      case 'options': return loopOptions();
+      case 'dashboard': return await openDashboard(root);
       case 'inspect': return await inspectProject(root);
       case 'doctor': return await doctor(root);
       case 'demo': return await createDemo(root, args.kind);
@@ -39,6 +43,7 @@ export async function dispatch(root, operation, args = {}) {
 }
 
 function checkedJobArgs(args) {
+  args = resolveRunArgs(args);
   if (!Number.isInteger(args.max_nodes) || args.max_nodes < 1 || args.max_nodes > 500) throw new ControlError('INVALID_INPUT', 'max_nodes must be an integer from 1 to 500');
   if (typeof args.request_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(args.request_id)) throw new ControlError('INVALID_INPUT', 'request_id is invalid');
   return args;

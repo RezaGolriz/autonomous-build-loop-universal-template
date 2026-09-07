@@ -1,3 +1,4 @@
+import { validateKind, workKinds } from './loop-options.mjs';
 import { ControlError, exactKeys, intValue, safeRelativeArray, stringArray, stringValue } from './common.mjs';
 
 const relPath = { type: 'string', minLength: 1, maxLength: 1024, pattern: '^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$' };
@@ -31,7 +32,9 @@ const negativeSchema = strict({
   expected_output: strict({ stream: { enum: ['stdout', 'stderr', 'combined'] }, match: { enum: ['equals', 'includes'] }, value: { type: 'string', minLength: 1, maxLength: 4096 } }, ['stream', 'match', 'value']),
 }, ['argv', 'cwd', 'timeout_seconds', 'expected_exit_code', 'expected_output']);
 
+const workKindSchema = { enum: Object.keys(workKinds) };
 const prepareSchema = strict({
+  work_kind: workKindSchema,
   request: { type: 'string', minLength: 1, maxLength: 20000 },
   acceptance_criteria: nonEmptyStrings, out_of_scope: nonEmptyStrings,
   allowed_paths: { type: 'array', minItems: 1, maxItems: 128, uniqueItems: true, items: relPath },
@@ -46,20 +49,22 @@ const prepareSchema = strict({
 }, ['request', 'acceptance_criteria', 'out_of_scope', 'allowed_paths', 'negative_control']);
 
 export const operations = Object.freeze({
+  options: { description: 'List supported work kinds and step or bounded run modes. All retain mandatory review and validation.', inputSchema: strict({}, []) },
+  dashboard: { description: 'Open a read-only local HTML dashboard and return its URL. Refresh to read current state; it cannot approve or start work.', inputSchema: strict({}, []) },
   inspect: { description: 'Read bounded project signals and return recommendations plus precise missing setup inputs.', inputSchema: strict({}, []) },
   doctor: { description: 'Check the control host, active/candidate configuration, provider installation, and authentication without exposing command output.', inputSchema: strict({}, []) },
   demo: { description: 'Create a runnable docs or Python demonstration in an empty selected project root and prepare a paused setup candidate.', inputSchema: strict({ kind: { enum: ['docs', 'python'] } }, ['kind']) },
   configure: { description: 'Persist signed machine-local builder and reviewer providers, resolved CLI paths, and safe default authentication checks for bundled Codex or Claude providers.', inputSchema: strict({ host: { enum: ['codex', 'claude', 'mock'] }, provider_path: { type: 'string', minLength: 1 }, cli_path: { type: 'string', minLength: 1 }, review_host: { enum: ['codex', 'claude', 'mock'] }, review_provider_path: { type: 'string', minLength: 1 }, review_cli_path: { type: 'string', minLength: 1 } }, ['host']) },
   prepare: { description: 'Write a complete paused candidate from explicit intent, bounded paths, a validated adapter or recommendation, and a meaningful negative control.', inputSchema: prepareSchema },
   activate: { description: 'Start a durable activation job using the persisted receipt; it runs digest-bound disposable positive and negative probes and publishes active state only when all gates pass.', inputSchema: strict({}, []) },
-  task: { description: 'Prepare the next bounded work item after the previous handover is completed.', inputSchema: strict({ request: { type: 'string', minLength: 1, maxLength: 20000 }, acceptance_criteria: nonEmptyStrings, out_of_scope: nonEmptyStrings, allowed_paths: { type: 'array', minItems: 1, uniqueItems: true, items: relPath }, frozen_paths: { type: 'array', uniqueItems: true, items: relPath }, work_item_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' } }, ['request', 'acceptance_criteria', 'out_of_scope', 'allowed_paths']) },
-  start: { description: 'Start a finite detached run from PAUSED state.', inputSchema: strict({ request_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, max_nodes: { type: 'integer', minimum: 1, maximum: 500 } }, ['request_id', 'max_nodes']) },
-  run: { description: 'Start or continue a finite detached run, executing one engine-owned node per iteration.', inputSchema: strict({ request_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, max_nodes: { type: 'integer', minimum: 1, maximum: 500 } }, ['request_id', 'max_nodes']) },
+  task: { description: 'Prepare the next bounded work item after the previous handover is completed.', inputSchema: strict({ work_kind: workKindSchema, request: { type: 'string', minLength: 1, maxLength: 20000 }, acceptance_criteria: nonEmptyStrings, out_of_scope: nonEmptyStrings, allowed_paths: { type: 'array', minItems: 1, uniqueItems: true, items: relPath }, frozen_paths: { type: 'array', uniqueItems: true, items: relPath }, work_item_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' } }, ['request', 'acceptance_criteria', 'out_of_scope', 'allowed_paths']) },
+  start: { description: 'Start a finite detached run from PAUSED state.', inputSchema: strict({ run_mode: { enum: ['step', 'bounded'] }, request_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, max_nodes: { type: 'integer', minimum: 1, maximum: 500 } }, ['request_id']) },
+  run: { description: 'Start or continue a finite detached run, executing one engine-owned node per iteration.', inputSchema: strict({ run_mode: { enum: ['step', 'bounded'] }, request_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, max_nodes: { type: 'integer', minimum: 1, maximum: 500 } }, ['request_id']) },
   status: { description: 'Return canonical engine status plus durable detached-job progress.', inputSchema: strict({ job_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' } }, []) },
   answer: { description: 'Record an actual human answer in a structured sidecar and resolve exactly one referenced blocker.', inputSchema: strict({ blocker_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, blocker_index: { type: 'integer', minimum: 1, maximum: 10000 }, answer: { type: 'string', minLength: 1, maxLength: 20000 } }, ['answer']) },
   pause: { description: 'Request that a detached worker finish its current bounded node and then pause.', inputSchema: strict({}, []) },
   cancel: { description: 'Request that a detached worker finish its current bounded node and then cancel.', inputSchema: strict({}, []) },
-  resume: { description: 'Resume a PAUSED run, or a BLOCKED run after all blockers are resolved, preserving original time and retry caps.', inputSchema: strict({ request_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, max_nodes: { type: 'integer', minimum: 1, maximum: 500 } }, ['request_id', 'max_nodes']) },
+  resume: { description: 'Resume a PAUSED run, or a BLOCKED run after all blockers are resolved, preserving original time and retry caps.', inputSchema: strict({ run_mode: { enum: ['step', 'bounded'] }, request_id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }, max_nodes: { type: 'integer', minimum: 1, maximum: 500 } }, ['request_id']) },
   handover: { description: 'Acknowledge a passed HANDOVER gate or a cancellation and complete the local work item without performing delivery actions.', inputSchema: strict({ note: { type: 'string', minLength: 1, maxLength: 20000 } }, ['note']) },
 });
 
@@ -123,6 +128,7 @@ export function validateNegative(value) {
 
 export function validateOperation(operation, args) {
   if (!Object.hasOwn(operations, operation)) throw new ControlError('UNKNOWN_OPERATION', `unknown operation: ${operation}`);
+  if (['prepare', 'task'].includes(operation)) validateKind(args.work_kind);
   const keys = Object.keys(operations[operation].inputSchema.properties);
   exactKeys(args, keys, operations[operation].inputSchema.required || [], 'args');
   if (Object.hasOwn(args, 'root')) throw new ControlError('UNKNOWN_FIELD', 'root is fixed by the transport and cannot appear in args');
