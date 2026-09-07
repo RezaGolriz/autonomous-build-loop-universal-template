@@ -10,7 +10,91 @@ This illustrative recipe uses PlatformIO with the Arduino framework and Unity
 for unit tests. Confirm board identifiers, package versions, and commands for
 your project; this page is not a runnable fixture.
 
-## 1. Project skeleton
+Choose [Chat variant](#chat-variant) or [Shell variant](#shell-variant).
+
+## Chat variant
+
+Use this route in Codex with the build-loop skill, or in Claude Desktop with
+the project-bound MCP integration. Follow the [shared chat setup](README.md#chat-variant-common-setup)
+first. These are prompts to send in separate turns, not a transcript of a tested
+run. The assistant performs the control calls; you do not need to paste JSON or
+shell commands. The numbered shell recipe below remains available separately.
+
+### 1. Inspect the target
+
+```text
+Inspect this firmware repository for the Universal Build Loop and check its
+prerequisites. Identify the actual board, PlatformIO environments, host-testable
+logic, toolchain, tests, and build output. Do not download a toolchain, compile,
+flash a board, contact MQTT, or initialize the loop yet.
+```
+
+If starting from an empty folder, use the shared guide's **baseline setup**
+prompt before proceeding. The loop needs passing baseline checks; inspection
+and preparation do not scaffold an application or install its dependencies.
+
+### 2. Prepare this scenario
+
+```text
+Prepare the first work item: core::Average uses a fixed-size buffer for the
+last N readings (default 10), rejects a reading more than 15 degrees Celsius
+from the current average, counts outliers, and returns the mean of accepted
+readings. Specify empty-buffer behavior before implementation. Cover empty,
+partial, full, wrap-around, and outlier cases with host-side tests. The firmware
+must still compile for the confirmed board.
+
+Use the other profile as a starting point. Allow lib/core/, src/, the actual
+build output, and a dedicated new test folder. Protect platformio.ini,
+partitions, dependencies, and existing test files. Do not protect all of test/
+if the new test folder must be editable: show a non-overlapping path policy
+before approval. A work-item allowlist cannot override a protected path.
+
+Run compile and host tests during EXECUTE; include host behavior, firmware
+artifact, and size checks during VALIDATE. No flashing, OTA updates, Wi-Fi or
+MQTT changes, new libraries, or dynamic allocation in core logic. Include exact
+commands, timeouts, environment names, and a known-failing host behavior probe.
+Prepare a paused candidate and show the approval summary. Do not activate.
+```
+
+Confirm the board instead of assuming esp32dev. Downloading a toolchain is
+separate baseline setup; compiling for a chip is not proof of on-device behavior.
+Hardware-in-the-loop checks are optional and require a separately scoped human
+decision for a dedicated test device. The chat recipe here never authorizes
+flashing.
+
+### 3. Approve, activate, and start
+
+Use the shared guide's [human approval and activation flow](README.md#human-approval-and-activation).
+After activation is confirmed successful, send:
+
+```text
+Start the prepared work item with a budget of 12 nodes. Generate a new
+project-unique request ID for this tempnode run and show the returned job ID.
+Stop on a blocker or at handover; do not create a duplicate first work item.
+```
+
+Twelve nodes is a budget, not a promise that the task will finish. Use the
+shared [status and continuation prompts](README.md#status-blockers-and-handover)
+if the budget ends or the conversation reconnects.
+
+### 4. Review the result
+
+```text
+Inspect the handover evidence for host tests, target compilation, firmware
+artifact, and size. Clearly distinguish host simulation from real-device
+behavior. Do not flash any board, update a fleet, or change credentials.
+```
+
+Acknowledge handover only after reviewing the evidence, using the shared guide.
+
+## Shell variant
+
+The following commands and configuration tables are an alternative setup route
+and technical reference. Do not also run the initializer after the chat flow
+has already activated this target. Review version-specific commands for the
+actual project; the tables do not override the approved chat proposal.
+
+### 1. Project skeleton
 
 ```bash
 mkdir tempnode && cd tempnode && git init
@@ -48,7 +132,7 @@ pio test -e native           # runs the unit tests on your computer
 
 Commit. Add `.pio/` to `.gitignore`.
 
-## 2. Initializer answers
+### 2. Initializer answers
 
 | Question | Answer |
 |---|---|
@@ -93,7 +177,7 @@ Why these choices:
 - The `size` target records flash and RAM usage in the evidence logs, so you
   can see if a change made the firmware grow.
 
-## 3. Optional: hardware in the loop
+### 3. Optional: hardware in the loop
 
 If a board is permanently attached to the machine that runs the loop, you can
 add a VALIDATE command that flashes it and runs the on-device tests:
@@ -106,7 +190,7 @@ Treat this like any external action: only for a dedicated test board, never
 for a device in the field. Flashing production hardware stays a human step
 after HANDOVER.
 
-## 4. Prepare and activate
+### 4. Prepare and activate
 
 Follow the [common setup](README.md#common-setup). Review the board target,
 output paths, and every PlatformIO command in the confirmation view.
@@ -114,7 +198,7 @@ The first `pio run` downloads the toolchain into `PLATFORMIO_CORE_DIR`
 (default `~/.platformio`). Run it by hand once so the download does not eat
 the timeout of the first loop step.
 
-## 5. First work item
+### 5. First work item
 
 ```markdown
 # WI-001: Rolling average with outlier rejection
@@ -158,11 +242,13 @@ firmware still compiles for `esp32dev`.
 Handover is not authorization to merge, publish, release or deploy.
 ```
 
-Because `test/**` is protected in the adapter, the work item explicitly allows
-`test/test_core/**`; the agent may only write tests there. If you want the
-agent never to touch tests, leave it out.
+The `test/**` protection above takes precedence over the work item: merely
+allowing `test/test_core/**` does not make it editable. Before approval, either
+keep all tests frozen, or narrow protection to the existing test paths and
+choose a separate editable folder for new tests in both the adapter and work
+item. Never weaken protected tests during execution.
 
-## 6. Run
+### 6. Run
 
 From Codex or Claude Desktop, ask the connected build-loop interface to create
 the work item and start a bounded job. Installing the desktop interface does not
@@ -178,13 +264,13 @@ The equivalent shell path is:
 ./engine/render-dashboard.sh --root /path/to/tempnode
 ```
 
-## 7. After handover
+### 7. After handover
 
 Flashing a device, updating a fleet over the air, or changing Wi-Fi
 credentials are human actions. Credentials never belong in the project;
 keep them in a header that is in `.gitignore` and outside every allowed path.
 
-## Pitfalls specific to embedded projects
+### Pitfalls specific to embedded projects
 
 - Compiling for the chip takes long the first time. Set timeouts generously
   (15 minutes is fine) and run the build once by hand before activating.

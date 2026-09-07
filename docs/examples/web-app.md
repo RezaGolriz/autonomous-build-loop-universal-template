@@ -9,7 +9,90 @@ This illustrative recipe uses React with TypeScript, Vite, Vitest, and
 Playwright. Confirm current package APIs and commands in your repository; this
 page is not a runnable fixture.
 
-## 1. Project skeleton
+Choose [Chat variant](#chat-variant) or [Shell variant](#shell-variant).
+
+## Chat variant
+
+Use this route in Codex with the build-loop skill, or in Claude Desktop with
+the project-bound MCP integration. Follow the [shared chat setup](README.md#chat-variant-common-setup)
+first. These are prompts to send in separate turns, not a transcript of a tested
+run. The assistant performs the control calls; you do not need to paste JSON or
+shell commands. The numbered shell recipe below remains available separately.
+
+### 1. Inspect the target
+
+```text
+Inspect this browser application for the Universal Build Loop and check its
+prerequisites. Identify the framework, type checks, component tests, browser
+tests, existing API mocks, and output/cache folders. Do not install packages,
+run project commands, or initialize the loop yet.
+```
+
+If starting from an empty folder, use the shared guide's **baseline setup**
+prompt before proceeding. The loop needs passing baseline checks; inspection
+and preparation do not scaffold an application or install its dependencies.
+
+### 2. Prepare this scenario
+
+```text
+Prepare the first work item: a login form has labeled email and password fields.
+Sign in stays disabled until the email is valid and the password has at least
+eight characters. Submitting uses a mocked POST /api/login, keeps the returned
+token in memory, and opens a dashboard showing the signed-in email. Reloading
+returns to login. Announce validation errors accessibly. Test the validation
+and success paths and prove the browser can reach the dashboard.
+
+Use the desktop profile as a starting point and explain installation evidence
+as the built browser bundle loading successfully. Allow src/ and the actual
+build, test, and cache output folders. Protect manifests, lockfiles, build/test
+configuration, and existing browser acceptance tests. Use existing mocking
+tools; raise a blocker if a dependency is missing. Password reset, persistent
+sessions, real accounts, and deployment are out of scope.
+
+Include exact commands, timeouts, evidence requirements, environment names,
+and a meaningful negative behavior probe. Prepare a paused candidate with
+explicit acceptance criteria and show the approval summary. Do not activate.
+```
+
+If MSW is absent, the agent must not silently add it to a protected manifest.
+For example, an actual user decision can be: “Use the existing Playwright route
+mocks; do not add MSW.” Record that decision through the blocker flow described
+in the shared chat guide. New acceptance tests must be provisioned in the
+baseline or placed in explicitly editable test paths before approval.
+
+### 3. Approve, activate, and start
+
+Use the shared guide's [human approval and activation flow](README.md#human-approval-and-activation).
+After activation is confirmed successful, send:
+
+```text
+Start the prepared work item with a budget of 12 nodes. Generate a new
+project-unique request ID for this dash run and show the returned job ID.
+Stop on a blocker or at handover; do not create a duplicate first work item.
+```
+
+Twelve nodes is a budget, not a promise that the task will finish. Use the
+shared [status and continuation prompts](README.md#status-blockers-and-handover)
+if the budget ends or the conversation reconnects.
+
+### 4. Review the result
+
+```text
+Inspect the handover evidence for form validation, mocked login, dashboard
+navigation, reload behavior, and accessibility checks. State what was actually
+exercised in a browser. Do not upload the bundle or use production accounts.
+```
+
+Acknowledge handover only after reviewing the evidence, using the shared guide.
+
+## Shell variant
+
+The following commands and configuration tables are an alternative setup route
+and technical reference. Do not also run the initializer after the chat flow
+has already activated this target. Review version-specific commands for the
+actual project; the tables do not override the approved chat proposal.
+
+### 1. Project skeleton
 
 ```bash
 npm create vite@latest dash -- --template react-ts
@@ -39,7 +122,7 @@ built app, so `npm run e2e` is self-contained. Create one component test in
 Run `npm run check` and `npm run e2e` by hand once. Commit; `node_modules/`
 and `dist/` go into `.gitignore`.
 
-## 2. Initializer answers
+### 2. Initializer answers
 
 | Question | Answer |
 |---|---|
@@ -68,12 +151,12 @@ Why these choices:
 - `dist/index.html` is the artifact; the referee checks that the build
   produced it.
 
-## 3. Prepare and activate
+### 3. Prepare and activate
 
 Follow the [common setup](README.md#common-setup). Review every browser command,
 output folder, protected test, and timeout in the confirmation view.
 
-## 4. First work item
+### 4. First work item
 
 ```markdown
 # WI-001: Login form with validation and session state
@@ -127,7 +210,7 @@ tests write to must be inside the allowed paths, otherwise the step fails
 even though the agent did nothing wrong. Tell the agent to list them in every
 slice.
 
-## 5. Run
+### 5. Run
 
 From Codex or Claude Desktop, ask the connected build-loop interface to create
 the work item and start a bounded job. Playwright and the selected worker CLI
@@ -149,12 +232,12 @@ as "MSW is not installed". That is correct behavior: install it yourself,
 commit, tick the blocker, and `resume`. If you prefer, install it before you
 start the loop.
 
-## 6. After handover
+### 6. After handover
 
 Uploading the bundle to your hosting, changing DNS, or rotating API keys are
 human actions after handover.
 
-## Pitfalls specific to web apps
+### Pitfalls specific to web apps
 
 - Browser tests are slow and sometimes flaky. Keep the VALIDATE timeout
   generous and make the tests deterministic (mock the network with MSW or

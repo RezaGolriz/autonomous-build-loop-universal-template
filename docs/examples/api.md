@@ -8,7 +8,90 @@ This illustrative recipe uses Python with FastAPI, pytest, and Schemathesis.
 Confirm current package APIs and commands in your own repository; this page is
 not a runnable fixture.
 
-## 1. Project skeleton
+Choose [Chat variant](#chat-variant) or [Shell variant](#shell-variant).
+
+## Chat variant
+
+Use this route in Codex with the build-loop skill, or in Claude Desktop with
+the project-bound MCP integration. Follow the [shared chat setup](README.md#chat-variant-common-setup)
+first. These are prompts to send in separate turns, not a transcript of a tested
+run. The assistant performs the control calls; you do not need to paste JSON or
+shell commands. The numbered shell recipe below remains available separately.
+
+### 1. Inspect the target
+
+```text
+Inspect this API repository for the Universal Build Loop and check its
+prerequisites. Identify the Python interpreter, dependency environment, test
+runner, OpenAPI contract checks, and generated files. Do not run project
+commands, install packages, or initialize the loop yet.
+```
+
+If starting from an empty folder, use the shared guide's **baseline setup**
+prompt before proceeding. The loop needs passing baseline checks; inspection
+and preparation do not scaffold an application or install its dependencies.
+
+### 2. Prepare this scenario
+
+```text
+Prepare the first work item: POST /orders accepts a customer and items with SKU
+and quantity, stores the order in memory, and returns 201 with a generated ID
+and status new. GET /orders/{id} returns the order or 404; GET /orders lists
+orders. Invalid input returns 422. OpenAPI describes all three routes and
+matches the actual responses. Persistence, authentication, and deployment are
+out of scope; use only existing dependencies.
+
+Use the api profile as a starting point. Allow src/, editable tests/, and only
+necessary test-output folders. Protect requirements, build/test configuration,
+and existing contract tests. Include unit and contract checks during EXECUTE
+and contract/behavior evidence during VALIDATE.
+
+Resolve a Python invocation that works from the runner, not only from an
+activated terminal. Do not guess installed Schemathesis APIs or interpreter
+paths. Include exact commands, timeouts, artifacts, environment names, and a
+meaningful failing contract or behavior probe. Prepare a paused candidate with
+explicit acceptance criteria and show the approval summary. Do not activate.
+```
+
+A Desktop process does not inherit a virtual environment activated in another
+terminal. Have the agent resolve and verify the interpreter and dependency
+location before preparing the candidate. Copied probes must work in their
+disposable location; do not point them back at mutable source in the original
+project. Missing dependencies are setup work, not passing evidence.
+
+### 3. Approve, activate, and start
+
+Use the shared guide's [human approval and activation flow](README.md#human-approval-and-activation).
+After activation is confirmed successful, send:
+
+```text
+Start the prepared work item with a budget of 12 nodes. Generate a new
+project-unique request ID for this orders-api run and show the returned job ID.
+Stop on a blocker or at handover; do not create a duplicate first work item.
+```
+
+Twelve nodes is a budget, not a promise that the task will finish. Use the
+shared [status and continuation prompts](README.md#status-blockers-and-handover)
+if the budget ends or the conversation reconnects.
+
+### 4. Review the result
+
+```text
+Inspect the handover evidence for create/read/list, invalid input, and the
+OpenAPI contract. Separate tests actually run from proposed checks. Do not
+deploy the API, migrate a database, or change credentials.
+```
+
+Acknowledge handover only after reviewing the evidence, using the shared guide.
+
+## Shell variant
+
+The following commands and configuration tables are an alternative setup route
+and technical reference. Do not also run the initializer after the chat flow
+has already activated this target. Review version-specific commands for the
+actual project; the tables do not override the approved chat proposal.
+
+### 1. Project skeleton
 
 ```bash
 mkdir orders-api && cd orders-api && git init
@@ -51,7 +134,7 @@ contract:  ; python3 -B -m pytest -q -p no:cacheprovider contract
 Run `make test` and `make contract` by hand once. Commit everything except
 `.venv/` (put it in `.gitignore`).
 
-## 2. Initializer answers
+### 2. Initializer answers
 
 | Question | Answer |
 |---|---|
@@ -97,7 +180,7 @@ each phase to cover every required evidence type together; here `test` and
 }
 ```
 
-## 3. Prepare and activate
+### 3. Prepare and activate
 
 Follow the [common setup](README.md#common-setup). Review the active Python
 environment, commands, paths, and contract evidence in the confirmation view.
@@ -106,7 +189,7 @@ Make sure the virtual environment is activated in the shell that runs the
 loop, because the referee passes `PATH` and `VIRTUAL_ENV` through to the
 commands.
 
-## 4. First work item
+### 4. First work item
 
 ```markdown
 # WI-001: Create and read orders
@@ -149,7 +232,7 @@ test passes.
 Handover is not authorization to merge, publish, release or deploy.
 ```
 
-## 5. Run
+### 5. Run
 
 From Codex or Claude Desktop, ask the connected build-loop interface to create
 this work item, start a bounded job, and show its status. The worker provider
@@ -165,13 +248,13 @@ The equivalent shell path is:
 ./engine/render-dashboard.sh --root /path/to/orders-api
 ```
 
-## 6. After handover
+### 6. After handover
 
 Deploying the service, rotating keys, or running database migrations are
 human actions after handover. The evidence folder tells you exactly which
 commands ran, with which exit codes, against which Git revision.
 
-## Pitfalls specific to APIs
+### Pitfalls specific to APIs
 
 - Contract tests that start a real server need a free port. Prefer the ASGI
   in-process mode shown above; it needs no port and no network.
