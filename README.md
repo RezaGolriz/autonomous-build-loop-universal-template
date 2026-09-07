@@ -112,6 +112,25 @@ These menu steps follow [Claude’s official installation guide](https://support
 4. **Start.** You choose the **run mode**.
 5. **Dashboard.** A separate dashboard request returns a **read‑only** dashboard URL. It **expires after 30 minutes**. Reload it for current state; request a fresh link after expiry. The dashboard is never used for approval.
 
+```mermaid
+flowchart LR
+    U[You describe the work<br/>in chat] --> H[Codex or<br/>Claude Desktop]
+    H --> M[Build Loop<br/>plugin / MCP]
+    M --> P[Paused setup<br/>proposal]
+    P --> A[Human setup<br/>approval]
+    A --> V[Disposable<br/>activation probes]
+    V --> R[Step or bounded<br/>run]
+    R --> W[Worker CLI edits<br/>the target project]
+    W --> Q[Independent review<br/>and validation]
+    Q -->|Rework needed| R
+    Q -->|Gates passed| O[Handover]
+    M -. read-only state .-> D[HTML status<br/>dashboard]
+    U -. reload / inspect .-> D
+```
+
+The chat is where you make decisions and request actions. The dashboard only
+shows recorded state; it cannot approve setup, start a run, or change files.
+
 ### Run modes
 
 - **step** — advances at most **one** node, then stops.
@@ -121,7 +140,7 @@ These menu steps follow [Claude’s official installation guide](https://support
 
 ### Kinds of work
 
-**Feature, Bug fix, Refactoring / maintenance, Documentation, Research, or Migration preparation.** Choose in chat or with the dashboard selectors. Every kind retains review and validation; migration execution needs separate authority.
+**Feature, Bug fix, Refactoring / maintenance, Documentation, Research, or Migration preparation.** Choose in chat, or use the dashboard selectors to generate a prompt that you paste into chat. Every kind retains review and validation; migration execution needs separate authority.
 
 ### Talking to it
 
@@ -132,6 +151,122 @@ Start in plain language, for example:
 
 The agent translates the request into tool inputs and asks for any missing decisions.
 Dashboard selectors can also prepare a request for you to copy into chat.
+
+## Understand the dashboard
+
+Ask for it from the target-project chat at any time, including before setup:
+
+> Show the Build Loop dashboard for this project.
+
+The agent calls `loop_dashboard` and returns a local URL. Open the link in your
+browser. It is read-only, and its local server stops 30 minutes after the link
+is issued. The page shows the state recorded when you load it. Reload for newer
+data; ask for a fresh link after expiry. Keep the link private because the page
+contains project paths, work-item text, blockers, and evidence summaries.
+
+![Annotated example of the Build Loop dashboard, showing status, workflow, loop selector, current job, blockers, evidence, and work item](docs/assets/dashboard-overview.svg)
+
+*Illustrated example; your project name, work item, phase, evidence, and blocker
+text will be different.*
+
+Read the page from top to bottom:
+
+| Dashboard area | What it tells you | What you do next |
+|---|---|---|
+| **Status** | One literal state: `NOT CONFIGURED`, `SETUP CANDIDATE`, `PAUSED`, `RUNNING`, `BLOCKED`, `WAITING_FOR_HUMAN`, `COMPLETED`, or `CANCELLED` | Follow the displayed next action; use chat for every change |
+| **Workflow** | Which of DEFINE, DESIGN, EXECUTE, REVIEW, VALIDATE, and HANDOVER is current and which gates have evidence. Gate states include `PASSED`, `FAILED`, and `PENDING`. **Round** counts workflow transitions and rework against a separate safety cap | A failed gate normally means rework; a pending gate has not been completed yet |
+| **Choose your next loop** | Builds a prompt for a work kind and either one step or a bounded run | Copy the generated prompt into Codex or Claude; selecting an option alone changes nothing |
+| **Current job** | The most recently recorded job and its node count. A bounded run's node limit is separate from the workflow round limit | Reload to see newer records; treat it as progress information, not proof that a gate passed |
+| **Blockers** | A missing decision or hard gate failure | Answer the open question in chat, then ask the agent to resume |
+| **Evidence** | The recorded checks and their PASSED, FAILED, or BLOCKED results | Use the phase gates for the overall result; individual failures can belong to an earlier rework attempt |
+| **Work item** | Scope, acceptance criteria, slices, and handover notes | Expand it when you need to check what the agent is allowed to do |
+
+Use the status as your decision point:
+
+```mermaid
+flowchart TD
+    S{Dashboard status}
+    S -->|NOT CONFIGURED| N[Ask chat to inspect the project<br/>and prepare a proposal]
+    S -->|SETUP CANDIDATE| C[Review proposal<br/>and complete human approval]
+    S -->|PAUSED| P[Choose step or bounded mode<br/>and ask chat to start]
+    S -->|RUNNING| R[Reload for progress<br/>or ask chat to continue]
+    S -->|BLOCKED| B[Read evidence and blocker<br/>answer in chat, then resume]
+    S -->|WAITING_FOR_HUMAN| H[Review HANDOVER<br/>and decide the next external action]
+    S -->|COMPLETED / CANCELLED| X[Prepare a new work item<br/>when you are ready]
+```
+
+### Example: understand a blocked run
+
+Suppose the dashboard shows:
+
+```text
+Status: BLOCKED                 Work item: WI-001
+Current phase: VALIDATE         Round: 6 / 40
+Blocker: Expected API response differs from the accepted contract.
+Workflow: DEFINE PASSED  DESIGN PASSED  EXECUTE PASSED
+          REVIEW PASSED  VALIDATE FAILED  HANDOVER PENDING
+```
+
+This means the loop reached validation, recorded a failure, and needs a human
+decision before it can continue. Ask the agent to explain it without changing
+anything:
+
+> Explain the open dashboard blocker in plain language. Show the failed
+> evidence and the available choices. Do not resume yet.
+
+After you decide, answer the blocker and keep the next action small:
+
+> For the open blocker, keep the accepted API contract and adjust the
+> implementation. Record that decision, resume for one step, and then show me
+> the updated dashboard.
+
+### Example: continue a healthy run
+
+If the status is `RUNNING`, first decide how far the loop may proceed:
+
+> Continue for one step, stop at the next node boundary, and show the dashboard.
+
+Or allow a bounded sequence:
+
+> Continue in bounded mode for at most 12 nodes. Stop earlier for any blocker
+> or at handover, then show the dashboard.
+
+When the dashboard shows `WAITING_FOR_HUMAN` in `HANDOVER`, the automated work
+has reached its review point. Read the work item and evidence, then ask:
+
+> Summarize the handover, changed files, validation evidence, and remaining
+> risks. Do not merge, push, deploy, or release anything.
+
+### Dashboard from the shell
+
+The original shell path produces a static HTML file and remains supported.
+Render it from the package folder:
+
+```bash
+cd /absolute/path/to/package-root
+./engine/render-dashboard.sh --root /absolute/path/to/target-project
+```
+
+Then open it on macOS:
+
+```bash
+open /absolute/path/to/target-project/.loop/dashboard.html
+```
+
+Or on Linux:
+
+```bash
+xdg-open /absolute/path/to/target-project/.loop/dashboard.html
+```
+
+The static file does not expire, but it becomes stale as soon as the loop state
+changes. Run the renderer again to update it. Keep the file private for the same
+reason as the local link. The shell dashboard and the chat/MCP dashboard read
+the same `.loop/` state, but the chat/MCP link can be refreshed in place until
+its server stops.
+
+For every field, evidence source, and limitation, see
+[docs/DASHBOARD.md](docs/DASHBOARD.md).
 
 ---
 
