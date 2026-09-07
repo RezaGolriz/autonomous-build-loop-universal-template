@@ -4,9 +4,9 @@ Goal: a small shop website with a product list, product pages, and a cart.
 The site is generated at build time and published as static files; the
 checkout talks to an external payment provider.
 
-This example uses Node with Astro as the site generator, Vitest for unit
-tests, and Playwright for browser checks. Any static-site tool works the same
-way.
+This illustrative recipe uses Node with Astro, Vitest, and Playwright. Confirm
+current package APIs and commands in your repository; this page is not a
+runnable fixture.
 
 ## 1. Project skeleton
 
@@ -20,11 +20,13 @@ npx playwright install --with-deps chromium
 Add these scripts to `package.json`:
 
 ```json
-"scripts": {
-  "build": "astro build",
-  "test": "vitest run",
-  "e2e": "playwright test",
-  "check": "astro check && npm run build && npm test"
+{
+  "scripts": {
+    "build": "astro build",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "check": "astro check && npm run build && npm test"
+  }
 }
 ```
 
@@ -66,9 +68,10 @@ Why these choices:
 - `behavior` evidence comes from the Playwright run, which clicks through the
   real pages.
 
-## 3. Activate
+## 3. Prepare and activate
 
-Follow the common activation steps in [README.md](README.md#the-seven-steps-every-example-follows).
+Follow the [common setup](README.md#common-setup). Review the generated-output
+paths, browser command, and protected test files in the confirmation view.
 Note that the referee requires the commands of **each** phase to declare every
 required evidence type. That is why both `check` (unit tests prove behavior)
 and `e2e` list `command,behavior,artifact`.
@@ -120,6 +123,12 @@ Handover is not authorization to merge, publish, release or deploy.
 ```
 
 ## 5. Run
+
+From Codex or Claude Desktop, ask the connected build-loop interface to create
+the work item and start a bounded job. Node, Playwright, and the selected worker
+CLI remain separate machine prerequisites.
+
+The equivalent shell path is:
 
 ```bash
 ./engine/orchestrator.sh start --root /path/to/shop

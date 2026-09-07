@@ -5,8 +5,9 @@ from an API. The loop must prove that the app type-checks, that the
 components behave as specified, and that a user can actually log in and see
 the dashboard in a real browser.
 
-This example uses React with TypeScript, Vite, Vitest for component tests,
-and Playwright for browser tests. Vue, Svelte, or Angular work the same way.
+This illustrative recipe uses React with TypeScript, Vite, Vitest, and
+Playwright. Confirm current package APIs and commands in your repository; this
+page is not a runnable fixture.
 
 ## 1. Project skeleton
 
@@ -21,12 +22,14 @@ npx playwright install --with-deps chromium
 Add these scripts to `package.json`:
 
 ```json
-"scripts": {
-  "typecheck": "tsc --noEmit",
-  "test": "vitest run",
-  "build": "vite build",
-  "e2e": "playwright test",
-  "check": "npm run typecheck && npm test && npm run build"
+{
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "vite build",
+    "e2e": "playwright test",
+    "check": "npm run typecheck && npm test && npm run build"
+  }
 }
 ```
 
@@ -65,9 +68,10 @@ Why these choices:
 - `dist/index.html` is the artifact; the referee checks that the build
   produced it.
 
-## 3. Activate
+## 3. Prepare and activate
 
-Follow the common steps in [README.md](README.md#the-seven-steps-every-example-follows).
+Follow the [common setup](README.md#common-setup). Review every browser command,
+output folder, protected test, and timeout in the confirmation view.
 
 ## 4. First work item
 
@@ -124,6 +128,12 @@ even though the agent did nothing wrong. Tell the agent to list them in every
 slice.
 
 ## 5. Run
+
+From Codex or Claude Desktop, ask the connected build-loop interface to create
+the work item and start a bounded job. Playwright and the selected worker CLI
+remain separate machine prerequisites.
+
+The equivalent shell path is:
 
 ```bash
 ./engine/orchestrator.sh start --root /path/to/dash

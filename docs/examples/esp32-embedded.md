@@ -6,8 +6,9 @@ that the firmware compiles for the real chip and that the logic (parsing,
 averaging, retry rules) is correct, without needing a board plugged in for
 every step.
 
-This example uses PlatformIO with the Arduino framework and Unity for unit
-tests. ESP-IDF works the same way; only the commands change.
+This illustrative recipe uses PlatformIO with the Arduino framework and Unity
+for unit tests. Confirm board identifiers, package versions, and commands for
+your project; this page is not a runnable fixture.
 
 ## 1. Project skeleton
 
@@ -71,12 +72,14 @@ the host tests after every slice, and so the EXECUTE commands cover every
 required evidence type:
 
 ```json
-"commands": [
+{
+  "commands": [
   {"id":"build","phase":"EXECUTE","cwd":".","argv":["pio","run","-e","esp32dev"],"timeout_seconds":900,"evidence_types":["command","artifact"]},
   {"id":"unit-fast","phase":"EXECUTE","cwd":".","argv":["pio","test","-e","native"],"timeout_seconds":600,"evidence_types":["command","acceptance","behavior"]},
   {"id":"unit","phase":"VALIDATE","cwd":".","argv":["pio","test","-e","native"],"timeout_seconds":600,"evidence_types":["command","acceptance","behavior","artifact"]},
   {"id":"size","phase":"VALIDATE","cwd":".","argv":["pio","run","-e","esp32dev","-t","size"],"timeout_seconds":900,"evidence_types":["command","artifact"]}
-]
+  ]
+}
 ```
 
 Why these choices:
@@ -103,9 +106,10 @@ Treat this like any external action: only for a dedicated test board, never
 for a device in the field. Flashing production hardware stays a human step
 after HANDOVER.
 
-## 4. Activate
+## 4. Prepare and activate
 
-Follow the common steps in [README.md](README.md#the-seven-steps-every-example-follows).
+Follow the [common setup](README.md#common-setup). Review the board target,
+output paths, and every PlatformIO command in the confirmation view.
 The first `pio run` downloads the toolchain into `PLATFORMIO_CORE_DIR`
 (default `~/.platformio`). Run it by hand once so the download does not eat
 the timeout of the first loop step.
@@ -159,6 +163,12 @@ Because `test/**` is protected in the adapter, the work item explicitly allows
 agent never to touch tests, leave it out.
 
 ## 6. Run
+
+From Codex or Claude Desktop, ask the connected build-loop interface to create
+the work item and start a bounded job. Installing the desktop interface does not
+install PlatformIO or authenticate the selected worker.
+
+The equivalent shell path is:
 
 ```bash
 ./engine/orchestrator.sh start --root /path/to/tempnode

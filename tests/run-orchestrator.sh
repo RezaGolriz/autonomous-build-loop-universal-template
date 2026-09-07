@@ -58,6 +58,22 @@ MOCK_SCRIPT=$(script "$d" '{"REVIEW":"fail:artifact"}') "$orch" loop --root "$d"
 ok 'failed independent review routes an artifact defect back to EXECUTE'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
+MOCK_SCRIPT= "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 4 >/dev/null
+[ "$(st "$d" .phase)" = REVIEW ] || bad 'invalid-verdict fixture did not reach REVIEW'
+bad_review=$(mktemp "${TMPDIR:-/tmp}/loop-bad-review.XXXXXX")
+cat > "$bad_review" <<'EOF'
+#!/usr/bin/env bash
+brief=$(mktemp); cat > "$brief"
+jq -n --slurpfile b "$brief" '$b[0] as $x|{schema_version:1,verdict_id:"bad-review",run_id:$x.run_id,work_item_id:$x.work_item_id,phase:"REVIEW",gate_id:"REVIEW",nonce:"0000000000000000000000000000000000000000000000000000000000000000",result:"PASS",reviewer:"fixture",independent:true,revision:$x.revision,captured_at:"2026-09-06T00:00:00Z",evidence_refs:$x.evidence_refs,findings:[]}'
+EOF
+chmod +x "$bad_review"
+set +e; "$orch" run --root "$d" --host mock --provider "$mock" --review-host test --review-provider "$bad_review" >/dev/null 2>&1; rc=$?; set -e
+[ "$rc" -eq 1 ] || bad "invalid verdict returned $rc"
+review_run="run-TEST-1-$(st "$d" .round)-review"
+grep -q 'verdict challenge mismatch' "$d/.loop/evidence/$review_run/logs/provider.stderr" || bad 'post-provider verdict error was absent from persisted stderr'
+ok 'review evidence persists validator stderr appended after provider exit'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
 s=$(script "$d" '{"DESIGN":"block"}')
 set +e; MOCK_SCRIPT=$s "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 5 >/dev/null; rc=$?; set -e
 [ "$rc" -ne 0 ] || bad 'blocked loop returned zero'
@@ -103,19 +119,28 @@ ok 'loop propagates a fatal run failure instead of retrying'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
 s=$(script "$d" '{"EXECUTE":"add-file"}')
-MOCK_SCRIPT=$s MOCK_DUMP="$d/review-brief.json" "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 5 >/dev/null
+review_dump=$(mktemp "${TMPDIR:-/tmp}/loop-review-brief.XXXXXX")
+MOCK_SCRIPT=$s "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 4 >/dev/null
+[ "$(st "$d" .phase)" = REVIEW ] || bad 'review-diff fixture did not reach REVIEW'
+git -C "$d" add src/greet.py
+git -C "$d" diff --cached --quiet -- src/greet.py && bad 'review-diff fixture has no staged change'
+printf '# unstaged tracked detail\n' >> "$d/src/greet.py"
+MOCK_SCRIPT=$s MOCK_DUMP="$review_dump" "$orch" run --root "$d" --host mock --provider "$mock" >/dev/null
 [ "$(st "$d" .phase)" = VALIDATE ] || bad "expected VALIDATE after review, got $(st "$d" .phase)"
-grep -q 'src/extra_module.py' "$d/review-brief.json" || bad 'review brief does not show the untracked new file'
-jq -e '.prompt|contains("Hello, {name}")' "$d/review-brief.json" >/dev/null || bad 'review brief does not show the tracked diff'
-ok 'the review brief contains tracked and untracked changes'
+grep -q 'src/extra_module.py' "$review_dump" || bad 'review brief does not show the untracked new file'
+jq -e '.prompt|contains("Hello, {name}")' "$review_dump" >/dev/null || bad 'review brief does not show the tracked diff'
+jq -e '.prompt|contains("unstaged tracked detail")' "$review_dump" >/dev/null || bad 'review brief does not show the unstaged tracked diff'
+ok 'the review brief contains staged, unstaged, and untracked changes from the target cwd'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
-printf '%s\n' '#!/usr/bin/env bash' "echo \"REVIEW-WRAPPER \$LOOP_PHASE\" >> \"$d.calls\"" "exec \"$mock\"" > "$d/review-wrapper.sh"
-chmod +x "$d/review-wrapper.sh"
+calls=$(mktemp "${TMPDIR:-/tmp}/loop-review-calls.XXXXXX")
+review_wrapper=$(mktemp "${TMPDIR:-/tmp}/loop-review-wrapper.XXXXXX")
+printf '%s\n' '#!/usr/bin/env bash' "echo \"REVIEW-WRAPPER \$LOOP_PHASE\" >> \"$calls\"" "exec \"$mock\"" > "$review_wrapper"
+chmod +x "$review_wrapper"
 s=$(script "$d" '{"VALIDATE":"block"}')
-if MOCK_SCRIPT=$s MOCK_DUMP="$d/review-brief.json" "$orch" loop --root "$d" --host mock --provider "$mock" --review-host mock --review-provider "$d/review-wrapper.sh" --max-nodes 6 >/dev/null; then bad 'VALIDATE did not stop the review-provider test'; fi
-[ "$(wc -l < "$d.calls" | tr -d ' ')" = 1 ] || bad 'review provider was not called exactly once'
-[ "$(cat "$d.calls")" = 'REVIEW-WRAPPER REVIEW' ] || bad 'review provider was called outside REVIEW'
+if MOCK_SCRIPT=$s MOCK_DUMP="$review_dump" "$orch" loop --root "$d" --host mock --provider "$mock" --review-host mock --review-provider "$review_wrapper" --max-nodes 6 >/dev/null; then bad 'VALIDATE did not stop the review-provider test'; fi
+[ "$(wc -l < "$calls" | tr -d ' ')" = 1 ] || bad 'review provider was not called exactly once'
+[ "$(cat "$calls")" = 'REVIEW-WRAPPER REVIEW' ] || bad 'review provider was called outside REVIEW'
 [ "$(st "$d" .phase)" = VALIDATE ] || bad "expected VALIDATE after review, got $(st "$d" .phase)"
 [ "$(st "$d" '.gates.REVIEW.status')" = PASSED ] || bad 'review did not pass'
 ok 'loop uses the separate review provider only for REVIEW'

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+. "$self_dir/common.sh"
+
 die(){ echo "ERROR: $1" >&2; exit "${2:-64}"; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "missing executable: $1" 69; }
 need jq; need shasum; need find
@@ -24,13 +27,8 @@ no_symlink_prefix(){ rel=$1; cur=$root; oldifs=$IFS; IFS=/; set -- $rel; IFS=$ol
 lock_workspace(){ mkdir -p "$root/.loop"; lock="$root/.loop/engine.lock"; mkdir "$lock" 2>/dev/null||die 'workspace is already locked' 73; echo $$ > "$lock/pid"; }
 unlock_workspace(){ [ -z "${lock:-}" ]||rm -f "$lock/pid" 2>/dev/null||:; [ -z "${lock:-}" ]||rmdir "$lock" 2>/dev/null||:; }
 
-snapshot(){
-  dest=$1; tmp=$(mktemp "${TMPDIR:-/tmp}/loop-snapshot.XXXXXX")
-  (cd "$root"; find . \( -path './.git' -o -path './.git/*' -o -path './.loop/engine.lock' -o -path './.loop/engine.lock/*' \) -prune -o \( -type f -o -type l \) -print | LC_ALL=C sort |
-    while IFS= read -r p; do p=${p#./}; if [ -L "$p" ]; then k=symlink; h=$(printf 'LINK:%s' "$(readlink "$p")"|shasum -a 256|awk '{print $1}'); else k=file; h=$(shasum -a 256 "$p"|awk '{print $1}'); fi; jq -cn --arg p "$p" --arg k "$k" --arg h "$h" '{path:$p,kind:$k,sha256:$h}'; done) |
-    jq -s '{schema_version:1,files:.}' > "$tmp"
-  mkdir -p "$(dirname "$dest")"; mv "$tmp" "$dest"
-}
+snapshot(){ loop_snapshot "$root" "$1" source; }
+protected_snapshot(){ loop_snapshot "$root" "$1" supervisor; }
 validate_evidence(){
   jq -e 'type=="object" and ((keys-["schema_version","evidence_id","work_item_id","phase","evidence_type","result","producer","revision","environment","captured_at","artifacts","details"])|length==0) and
     .schema_version==1 and (.evidence_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and (.work_item_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
@@ -59,8 +57,10 @@ validate_log_binding(){
   done
 }
 
-if [ "$mode" = snapshot ]; then
-  [ -d "$root" ] || die 'root missing'; [ -n "$output" ] || die 'output missing'; root=$(cd "$root"&&pwd -P); snapshot "$output"; exit
+if [ "$mode" = snapshot ] || [ "$mode" = protected-snapshot ]; then
+  [ -d "$root" ] || die 'root missing'; [ -n "$output" ] || die 'output missing'; root=$(cd "$root"&&pwd -P)
+  if [ "$mode" = snapshot ]; then snapshot "$output"; else protected_snapshot "$output"; fi
+  exit
 fi
 
 if [ "$mode" = issue-review ]; then
@@ -105,20 +105,37 @@ if [ "$mode" = validate-verdict ]; then
   echo "$dest"; trap - EXIT INT TERM; [ "$result" = PASSED ] || exit 1; exit
 fi
 
-validate_state(){
-  jq -e 'type=="object" and ((keys-["schema_version","work_item_id","phase","run_status","step","round","max_rounds","gate_failures_here","max_gate_failures","started_epoch","max_wall_seconds","autonomy","gates","last_result","next_action","updated_at"])|length==0) and .schema_version==1 and
-    (.work_item_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and (.phase as $p|["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"]|index($p)!=null) and
-    (.run_status as $s|["PAUSED","RUNNING","BLOCKED","WAITING_FOR_HUMAN","COMPLETED","CANCELLED"]|index($s)!=null) and
-    all([.step,.next_action,.updated_at][];type=="string" and length>0) and (.last_result|type=="string") and
-    all([.round,.max_rounds,.gate_failures_here,.max_gate_failures][];type=="number" and .>=0 and floor==.) and .max_rounds>=1 and .max_gate_failures>=1 and
-    (if .run_status=="RUNNING" then (.started_epoch|type=="number" and .>=0 and floor==.) and (.max_wall_seconds|type=="number" and .>=1 and floor==.) else ((.started_epoch//0)|type=="number") and ((.max_wall_seconds//1)|type=="number") end) and
-    (.autonomy as $a|["supervised","guarded","autonomous"]|index($a)!=null) and (.gates|type=="object" and (keys|sort)==(["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"]|sort)) and
-    all(.gates|to_entries[];.value|type=="object" and ((keys-["status","evidence_ids"])|length==0) and (.status as $x|["PENDING","PASSED","FAILED","NOT_APPLICABLE"]|index($x)!=null) and (.evidence_ids|type=="array" and length==(unique|length))) and .gates.REVIEW.status!="NOT_APPLICABLE"' "$1" >/dev/null
-}
+validate_state(){ loop_validate_state "$1"; }
 validate_workflow(){
   jq -e 'type=="object" and ((keys-["schema_version","workflow_id","phases","green_transitions","rework_transitions","mandatory_independent_review"])|length==0) and .schema_version==1 and .workflow_id=="universal-v1" and .phases==["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"] and .mandatory_independent_review==true and
     .green_transitions==[{"from":"DEFINE","to":"DESIGN"},{"from":"DESIGN","to":"EXECUTE"},{"from":"EXECUTE","to":"EXECUTE"},{"from":"EXECUTE","to":"REVIEW"},{"from":"REVIEW","to":"VALIDATE"},{"from":"VALIDATE","to":"HANDOVER"}] and
     .rework_transitions==[{"from":"DESIGN","to":"DEFINE","defect_class":"requirement"},{"from":"REVIEW","to":"DEFINE","defect_class":"requirement"},{"from":"REVIEW","to":"DESIGN","defect_class":"design"},{"from":"REVIEW","to":"EXECUTE","defect_class":"artifact"},{"from":"VALIDATE","to":"DEFINE","defect_class":"requirement"},{"from":"VALIDATE","to":"DESIGN","defect_class":"design"},{"from":"VALIDATE","to":"EXECUTE","defect_class":"artifact"}]' "$1" >/dev/null
+}
+
+mark_cap_blocked(){
+  local cap_reason=$1 cap_tmp cap_action
+  case "$cap_reason" in
+    'round cap reached') cap_action='raise max_rounds or cancel the run' ;;
+    'retry cap reached') cap_action='raise max_gate_failures or cancel the run' ;;
+    'wall clock cap reached') cap_action='raise max_wall_seconds or cancel the run' ;;
+    *) cap_action='repair the invalid run budget before resuming' ;;
+  esac
+  cap_tmp=$(mktemp "$(dirname "$state")/.state.XXXXXX")
+  jq --arg reason "$cap_reason" --arg action "$cap_action" --arg at "$(now)" \
+    '.run_status="BLOCKED"|.last_result=("blocked: "+$reason)|.next_action=$action|.updated_at=$at' "$state" > "$cap_tmp"
+  validate_state "$cap_tmp" || { rm -f "$cap_tmp"; die 'resulting capped state invalid'; }
+  chmod --reference="$state" "$cap_tmp" 2>/dev/null || :
+  mv "$cap_tmp" "$state"
+  append_cap_blocker "$cap_reason"
+  die "$cap_reason" 1
+}
+
+append_cap_blocker(){
+  local cap_reason=$1 blockers cap_line
+  blockers="$(dirname "$state")/blockers.md"
+  [ -f "$blockers" ] || printf '# Blockers\n\n' > "$blockers"
+  cap_line="- [ ] $(jq -r .phase "$state") cap: $cap_reason"
+  grep -Fqx -- "$cap_line" "$blockers" 2>/dev/null || printf '%s\n' "$cap_line" >> "$blockers"
 }
 
 if [ "$mode" = transition ]; then
@@ -126,10 +143,11 @@ if [ "$mode" = transition ]; then
   root=$(cd "$root"&&pwd -P); validate_state "$state"||die 'state validation failed'; validate_workflow "$workflow"||die 'workflow validation failed'
   jq -e 'type=="object" and ((keys-["schema_version","adapter_id","project_kind","target","artifacts","commands","validation","protected_paths","environment"])|length==0) and .schema_version==1 and (.validation|type=="object" and ((keys-["required_evidence"])|length==0) and (.required_evidence|type=="array" and length>0 and length==(unique|length))) and (.environment|type=="object" and ((keys-["allow_names"])|length==0))' "$adapter" >/dev/null||die 'adapter validation failed'
   [ "$(jq -r .run_status "$state")" = RUNNING ]||die 'state is not RUNNING'; current=$(jq -r .phase "$state")
-  [ "$(jq -r .round "$state")" -lt "$(jq -r .max_rounds "$state")" ]||die 'round cap reached'
-  [ "$(jq -r .gate_failures_here "$state")" -lt "$(jq -r .max_gate_failures "$state")" ]||die 'retry cap reached'
-  started=$(jq -r .started_epoch "$state"); [ "$started" -gt 0 ]||die 'running state has no start time'; [ $(( $(date +%s)-started )) -le "$(jq -r .max_wall_seconds "$state")" ]||die 'wall clock cap reached'
   lock_workspace; trap 'unlock_workspace' EXIT INT TERM
+  [ "$(jq -r .round "$state")" -lt "$(jq -r .max_rounds "$state")" ]||mark_cap_blocked 'round cap reached'
+  [ "$(jq -r .gate_failures_here "$state")" -lt "$(jq -r .max_gate_failures "$state")" ]||mark_cap_blocked 'retry cap reached'
+  started=$(jq -r .started_epoch "$state"); [ "$started" -gt 0 ]||mark_cap_blocked 'running state has no start time'
+  [ $(( $(date +%s)-started )) -le "$(jq -r .max_wall_seconds "$state")" ]||mark_cap_blocked 'wall clock cap reached'
   work=$(jq -r .work_item_id "$state"); revision=$(git -C "$root" rev-parse HEAD 2>/dev/null||echo unversioned); types='[]'; allpass=1
   for id in "${refs[@]}"; do f="$evidence_dir/$id.json"; [ -f "$f" ]&&validate_evidence "$f"&&validate_log_binding "$f" "$evidence_dir"||die "invalid transition evidence: $id"; jq -e --arg id "$id" --arg w "$work" --arg p "$current" --arg rev "$revision" '.evidence_id==$id and .work_item_id==$w and .phase==$p and .revision==$rev' "$f" >/dev/null||die "stale transition evidence: $id"; [ "$(jq -r .result "$f")" = PASSED ]||allpass=0; t=$(jq -r .evidence_type "$f"); types=$(jq -c --arg t "$t" '.+[$t]|unique'<<<"$types"); done
   case "$current" in
@@ -142,8 +160,10 @@ if [ "$mode" = transition ]; then
   if [ "$allpass" -eq 1 ]; then jq -e --arg f "$current" --arg t "$to" '.green_transitions|any(.from==$f and .to==$t)' "$workflow" >/dev/null||die 'illegal green transition'; gate=PASSED; failures=0; status=RUNNING
   else [ -n "$defect_class" ]||die 'failed gate requires defect class'; jq -e --arg f "$current" --arg t "$to" --arg d "$defect_class" '.rework_transitions|any(.from==$f and .to==$t and .defect_class==$d)' "$workflow" >/dev/null||die 'illegal rework transition'; gate=FAILED; failures=$(( $(jq -r .gate_failures_here "$state")+1 )); status=RUNNING; [ "$failures" -lt "$(jq -r .max_gate_failures "$state")" ]||status=BLOCKED; fi
   [ "$to" != HANDOVER ]||status=WAITING_FOR_HUMAN; idsjson=$(printf '%s\n' "${refs[@]}"|jq -Rsc 'split("\n")|map(select(length>0))'); tmp=$(mktemp "$(dirname "$state")/.state.XXXXXX")
-  jq --arg phase "$to" --arg gate "$gate" --arg status "$status" --arg now "$(now)" --argjson failures "$failures" --argjson ids "$idsjson" '.gates[.phase]={status:$gate,evidence_ids:$ids}|.phase=$phase|.run_status=$status|.round+=1|.gate_failures_here=$failures|.last_result=("gate "+$gate)|.next_action=("continue "+$phase)|.updated_at=$now' "$state" > "$tmp"
-  validate_state "$tmp"||{ rm -f "$tmp"; die 'resulting state invalid'; }; chmod --reference="$state" "$tmp" 2>/dev/null||:; mv "$tmp" "$state"; trap - EXIT INT TERM; unlock_workspace; exit
+  jq --arg phase "$to" --arg gate "$gate" --arg status "$status" --arg now "$(now)" --argjson failures "$failures" --argjson ids "$idsjson" '.gates[.phase]={status:$gate,evidence_ids:$ids}|.phase=$phase|.run_status=$status|.round+=1|.gate_failures_here=$failures|.last_result=("gate "+$gate)|.next_action=(if $status=="BLOCKED" then "raise max_gate_failures or cancel the run" else "continue "+$phase end)|.updated_at=$now' "$state" > "$tmp"
+  validate_state "$tmp"||{ rm -f "$tmp"; die 'resulting state invalid'; }; chmod --reference="$state" "$tmp" 2>/dev/null||:; mv "$tmp" "$state"
+  [ "$status" != BLOCKED ] || append_cap_blocker 'retry cap reached'
+  trap - EXIT INT TERM; unlock_workspace; exit
 fi
 
 [ "$mode" = verify ] || die 'unknown mode'
@@ -177,7 +197,9 @@ jq -e 'type=="object" and ((keys-["schema_version","adapter_id","project_kind","
   (.allowed_paths|type=="array" and length>0 and length==(unique|length) and all(.[];type=="string" and length>0)) and
   (.frozen_paths|type=="array" and length==(unique|length) and all(.[];type=="string" and length>0)) and
   (.retry_cap|type=="number" and .>=1 and .<=20 and floor==.) and (.escalation_target as $e|["human","DEFINE","DESIGN","EXECUTE"]|index($e)!=null)' "$node" >/dev/null || die 'node validation failed'
-jq -e '.schema_version==1 and (.files|type=="array") and all(.files[];(.sha256|test("^[0-9a-f]{64}$")))' "$baseline" >/dev/null || die 'baseline invalid'
+jq -e '.schema_version==1 and (.files|type=="array") and all(.files[];
+  type=="object" and keys==["kind","mode","path","sha256"] and (.path|type=="string" and length>0) and
+  (.kind=="file" or .kind=="symlink") and (.mode|test("^[0-7]{3,4}$")) and (.sha256|test("^[0-9a-f]{64}$")))' "$baseline" >/dev/null || die 'baseline invalid'
 while IFS= read -r p; do safe_path "$p" && no_symlink_prefix "$p" || die "unsafe policy path: $p"; done < <(jq -r '.protected_paths[]' "$adapter"; jq -r '.allowed_paths[],.frozen_paths[]' "$node")
 [ -z "$(cd "$root"&&find . -path './.git' -prune -o -type l -print -quit)" ]||die 'workspace symlinks are not supported by the contained reference executor'
 
@@ -193,6 +215,7 @@ jq -e --argjson have "$declared_types" '.validation.required_evidence-($have|uni
 need perl; lock_workspace
 work=$(mktemp -d "${TMPDIR:-/tmp}/loop-evidence.XXXXXX"); trap 'unlock_workspace; rm -rf "$work"' EXIT INT TERM
 snapshot "$work/pre"
+protected_snapshot "$work/protected-pre"
 rid=$(jq -r .run_id "$node"); rev=$(git -C "$root" rev-parse HEAD 2>/dev/null||echo unversioned); host_env=$(uname -srm); failed=0; ids="$work/ids"; : > "$ids"
 adapter_sha=$(shasum -a 256 "$adapter"|awk '{print $1}'); node_sha=$(shasum -a 256 "$node"|awk '{print $1}')
 env_args=(); env_names=(); while IFS= read -r name; do env_names+=("$name"); value=${!name-}; env_args+=("$name=$value"); done < <(jq -r '.environment.allow_names[]' "$adapter")
@@ -202,8 +225,15 @@ timed(){
   env -i "${env_args[@]}" perl -MPOSIX -e 'POSIX::setpgid(0,0); exec @ARGV or exit 127' "$@" >"$out" 2>"$err" & pid=$!
   ticks=$((sec*10)); i=0
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$ticks" ]; do sleep 0.1; i=$((i+1)); done
-  if kill -0 "$pid" 2>/dev/null; then kill -TERM -- "-$pid" 2>/dev/null||:; sleep 0.1; kill -KILL -- "-$pid" 2>/dev/null||:; set +e; wait "$pid"; set -e; return 124; fi
-  set +e; wait "$pid"; rc=$?; set -e; return "$rc"
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -TERM -- "-$pid" 2>/dev/null||kill -TERM "$pid" 2>/dev/null||:; sleep 0.2; kill -KILL -- "-$pid" 2>/dev/null||kill -KILL "$pid" 2>/dev/null||:
+    wait "$pid" 2>/dev/null || :; return 124
+  fi
+  if wait "$pid"; then rc=0; else rc=$?; fi
+  if kill -0 -- "-$pid" 2>/dev/null; then
+    kill -TERM -- "-$pid" 2>/dev/null || :; sleep 0.2; kill -KILL -- "-$pid" 2>/dev/null || :
+  fi
+  return "$rc"
 }
 while IFS= read -r id; do
   c=$(jq -c --arg id "$id" '.commands[]|select(.id==$id)' "$adapter"); cwd=$(jq -r .cwd <<<"$c"); sec=$(jq -r .timeout_seconds <<<"$c"); a=(); while IFS= read -r -d '' v; do a+=("$v"); done < <(jq -j '.argv[]|.,"\u0000"' <<<"$c")
@@ -225,8 +255,9 @@ artifact_present(){ pat=$1; safe_path "$pat" && no_symlink_prefix "$pat" || retu
 while IFS= read -r pat; do artifact_present "$pat"||failed=1; done < <(jq -r '.output_artifacts[]' "$node"; jq -r '.artifacts[].paths[]' "$adapter")
 
 snapshot "$work/after"
-jq -n -r --arg ep "$evidence_rel" --slurpfile b "$baseline" --slurpfile a "$work/after" '((($b[0].files+$a[0].files)|map(.path)|unique)[]) as $p|(($b[0].files|map(select(.path==$p))|.[0])//null) as $x|(($a[0].files|map(select(.path==$p))|.[0])//null) as $y|select($x!=$y)|select($ep=="" or (($p==$ep or ($p|startswith($ep+"/")))|not))|$p' > "$work/changed"
-jq -n -r --arg ep "$evidence_rel" --slurpfile b "$work/pre" --slurpfile a "$work/after" '((($b[0].files+$a[0].files)|map(.path)|unique)[]) as $p|(($b[0].files|map(select(.path==$p))|.[0])//null) as $x|(($a[0].files|map(select(.path==$p))|.[0])//null) as $y|select($x!=$y)|select($ep!="" and ($p==$ep or ($p|startswith($ep+"/"))))|$p' >> "$work/changed"
+protected_snapshot "$work/protected-after"
+loop_changed_paths "$baseline" "$work/after" > "$work/changed"
+loop_changed_paths "$work/protected-pre" "$work/protected-after" >> "$work/changed"
 match(){ q=$1 sel=$2 file=$3; while IFS= read -r pat; do [[ "$q" == $pat ]]&&return 0; done < <(jq -r "$sel[]" "$file"); return 1; }
 while IFS= read -r p; do [ -n "$p" ]||continue; protected=0; match "$p" .protected_paths "$adapter"&&protected=1; case "$p" in .loop/*|core/*|spec/*|hosts/*|engine/*) protected=1;; esac; parent=$(dirname "$root/$p"); if [ -L "$root/$p" ]||! physical_under_root "$parent" >/dev/null||! no_symlink_prefix "$p"; then failed=1; elif [ "$protected" -eq 1 ]||match "$p" .frozen_paths "$node"||! match "$p" .allowed_paths "$node"; then failed=1; fi; done < "$work/changed"
 [ "$failed" -eq 0 ] || for record in "$work"/$rid-*.json; do tmp="$record.tmp"; jq '.result="FAILED"' "$record" > "$tmp" && mv "$tmp" "$record"; done

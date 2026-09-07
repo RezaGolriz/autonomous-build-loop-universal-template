@@ -1,0 +1,16 @@
+{
+  "name": "build-loop",
+  "version": "0.3.0",
+  "description": "Set up, run, inspect, and resume a local evidence-backed development loop.",
+  "author": { "name": "Build Loop contributors" },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Build Loop",
+    "shortDescription": "A shared development workflow for chat and shell.",
+    "longDescription": "Guide setup and bounded development using the bundled control CLI. Keep independent review, captured checks, and human authority. Existing shell workflows remain supported.",
+    "developerName": "Build Loop contributors",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": ["Set up the build loop for this project.", "Show the current build-loop status.", "Resume the current approved work item."]
+  }
+}

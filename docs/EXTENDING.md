@@ -1,63 +1,119 @@
-# Extending the template
+# Configuration and extension points
 
-## Add a project-type profile
+The workflow is fixed. Extend project profiles, target adapters, providers, or
+evidence collectors without adding a second transition policy.
 
-Create one advisory JSON document following the existing profile shape. Choose
-artifact kinds and the smallest set of validation evidence that proves the
-target usable. Initialization combines the selected profile with
-project-specific target, path, protection, and command data into a strict
-document conforming to `spec/schemas/project-adapter.schema.json`.
+## Active project adapter
+
+Once activated, the project adapter is configuration truth. It identifies the
+target, artifacts, protected paths, allowed environment variable names, exact
+verification commands, evidence requirements, and execution limits.
+
+Treat changes to this file as control changes: prepare a new proposal, review
+it, prove its positive and negative checks in a disposable copy, and activate
+it through the same bound approval flow. Runtime discovery must not silently
+rewrite an active adapter.
+
+Generated state, jobs, locks, evidence, and logs are not adapter inputs.
+
+## Add a project profile
+
+A profile describes the smallest evidence set appropriate to one project shape.
+It may distinguish behavior, contract, package, installation, artifact, or
+documentation evidence. It must remain independent of language and framework.
 
 A profile must not:
 
 - add, remove, rename, reorder, or skip workflow phases;
-- make `REVIEW` optional;
-- treat worker prose as evidence;
-- embed shell snippets or secrets;
-- grant publication or external-state authority.
+- make REVIEW optional;
+- treat worker prose as gate evidence;
+- embed target commands, shell strings, or secrets;
+- grant publication or another external action.
 
-## Add a technology pack
+Do not call a profile conformant until an unchanged engine passes a positive
+fixture and relevant fail-closed controls for it.
 
-A technology pack may suggest target values, manifest discovery, commands,
-protected paths, and evidence collectors. It must compose with multiple project
-profiles and must not define transitions. For example, a Rust pack can support
-both CLI and library profiles; neither profile should contain Rust assumptions.
+## Add a target recipe
 
-## Add a host adapter
+A recipe may suggest manifest discovery, runtimes, commands, protected paths,
+artifacts, and evidence collectors. Suggestions remain preparation input until
+a human confirms them. A recipe can serve several profiles; for example, a Rust
+recipe may support both a CLI and a library.
 
-A host adapter starts one fresh worker or reviewer, applies least-privilege
-permissions, passes only declared artifacts, and returns a normalized result.
-It must not write runner-owned verdicts, reinterpret transitions, or silently
-retry a failed or ambiguous operation.
+Use structured command declarations:
 
-## Additional node schema
+~~~json
+{
+  "id": "unit",
+  "phase": "VALIDATE",
+  "cwd": ".",
+  "argv": ["cargo", "test", "--locked"],
+  "timeout_seconds": 600,
+  "evidence_types": ["command", "acceptance", "behavior"]
+}
+~~~
 
-`spec/schemas/node.schema.json` is intentionally additional to the five
-canonical interchange schemas. It is the machine-enforced node brief and owns
-`allowed_paths` and `frozen_paths`; the project adapter owns repository-wide
-`protected_paths`.
+Never interpolate an untrusted shell command. Declare only environment variable
+names; keep values in established local secret mechanisms.
+
+## Add a provider
+
+A provider starts one fresh worker or reviewer, applies the configured
+permissions, passes only declared artifacts, and returns a normalized result. It
+must not own state transitions, write prior evidence, silently retry an
+ambiguous operation, or reinterpret a blocked gate.
+
+Keep project configuration portable by storing executable paths, installed
+versions and generated authentication status in signed provider machine
+configuration.
+
+## Add a client
+
+A new chat UI, editor integration, or automation client should call
+control/index.mjs through dispatch(root, operation, args). It must render
+structured results and preserve job IDs, approval boundaries, blockers, and
+evidence references.
+
+A client must not:
+
+- accept a project-root override after connecting to a bound project;
+- replace the local confirmation view with a boolean tool argument;
+- implement its own pass/fail logic;
+- turn transport success into gate success;
+- imply merge or delivery authority after handover.
 
 ## Add an executor or VCS adapter
 
-Executors receive structured argument vectors, working directories, explicit
-environment allowlists, and timeouts. VCS adapters provide revision identity,
-change enumeration, and clean-tree checks. Their absence is a blocked
-capability, not permission to approximate evidence.
+Executors receive a structured argument vector, working directory, explicit
+environment allowlist, and timeout. VCS adapters supply revision identity,
+change enumeration, and clean-tree checks. Missing capabilities block; they do
+not permit approximate evidence.
 
 ## Add an evidence kind
 
-Extend the evidence schema, project-adapter evidence enumeration, validator, renderer,
-and conformance vectors together. Define producer, observable result, failure
-meaning, and replay or reproduction method. Do not use a new evidence kind to
-bypass independent review.
+Change the evidence schema, project-adapter enumeration, validator, renderer,
+and conformance vectors together. Define:
 
-## Compatibility discipline
+- producer and observable result;
+- what failure means;
+- artifact and revision binding;
+- reproduction method;
+- limits of the claim.
 
-Schema changes require a new schema version, migration, positive vectors,
-negative vectors for unknown or unsafe input, and matrix tests across every v1
-profile. Readers must reject unsupported future versions instead of ignoring
-fields they do not understand.
+No evidence kind may bypass independent review.
 
-Do not describe a new profile as conformant until the unchanged reference engine
-has a passing positive fixture and relevant negative controls for it. A profile
-file alone is advisory metadata, not conformance evidence.
+## Schema compatibility
+
+Schema changes require a new version, migration guidance, positive vectors,
+negative vectors for unknown and unsafe input, and matrix tests across supported
+profiles. Readers reject unsupported future versions instead of ignoring fields
+they do not understand.
+
+## Package compatibility
+
+Runtime code and public examples must work from an installed package. Resolve
+bundled workflow, schema, template, provider, and skill assets from the package
+location. Do not assume source-only tests, a full repository checkout, Git
+history, or a personal filesystem path exists.
+
+Record actual compatibility evidence in [VALIDATION.md](VALIDATION.md).

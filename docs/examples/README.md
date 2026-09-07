@@ -1,74 +1,78 @@
-# Examples: setting up the loop for different kinds of projects
+# Worked scenario recipes
 
-Each example walks through one project type from an empty folder to a
-finished first work item. They all follow the same seven steps; only the
-answers change.
+These documents show how a project adapter and first work item could be shaped
+for four different targets. They are illustrative recipes, not proof that every
+listed stack, version, command, provider, or device was tested by this project.
+The runnable repository fixtures are under tests/fixtures and are recorded
+separately in [the validation matrix](../VALIDATION.md).
 
-| Example | Project type | Stack used in the example | Profile |
+| Recipe | Target | Suggested stack | Profile |
 |---|---|---|---|
-| [Web shop](web-shop.md) | A public website with product pages and a cart | Static site built with Node (Astro) plus Playwright checks | `service` |
-| [API](api.md) | A JSON HTTP API | Python, FastAPI, pytest, OpenAPI contract check | `api` |
-| [ESP32 firmware](esp32-embedded.md) | A small embedded device (sensor + Wi-Fi) | PlatformIO, C++, host-side unit tests | `other` |
-| [Web app](web-app.md) | A browser app with login and a dashboard | React, TypeScript, Vite, Vitest, Playwright | `desktop` |
+| [Web shop](web-shop.md) | Static public shop with browser behavior | Astro, Vitest, Playwright | service |
+| [JSON API](api.md) | HTTP API with an interface contract | Python, FastAPI, pytest, Schemathesis | api |
+| [ESP32 firmware](esp32-embedded.md) | Firmware plus host-testable logic | PlatformIO, C++, Unity | other |
+| [Web app](web-app.md) | Browser client with login and dashboard | React, TypeScript, Vite, Vitest, Playwright | desktop |
 
-You do not have to use these exact tools. Swap the commands and the loop stays
-the same.
+Choose commands that are authoritative for your actual repository. A similar
+framework does not make a copied recipe correct.
 
-## The seven steps every example follows
+## Common setup
 
-1. **Create the project skeleton** with the tools of your stack, and make sure
-   one build command and one test command already work by hand.
-2. **Run the initializer** from a clean template checkout:
-   `./bootstrap/init.sh /path/to/project`. It asks a short list of questions
-   (project kind, language, commands, paths, evidence). Each example shows the
-   answers to give.
-3. **Review the candidate** in `.loop/candidate/`. Open
-   `ACTIVATION-CHECKLIST.md` and go through it. If you want more than one check
-   per phase (for example build **and** lint), edit `project.adapter.json` now
-   and add commands; every command must list `command` in its `evidence_types`.
-4. **Prove the checks can fail** by running the negative control you recorded
-   (a command that is known to fail). If it passes, your verifier is wrong.
-5. **Activate** by copying the files to their active names and adding the
-   workflow, a blockers file, and a `.gitignore` entry for evidence:
+1. Establish a working baseline in the target repository. Run its existing
+   build and test commands by hand and preserve unrelated work.
+2. Inspect, run doctor, and prepare a proposal with the first bounded work item.
+   Preparation must not execute target commands.
+3. Review the profile, exact argv commands, timeouts, artifacts, evidence kinds,
+   protected paths, allowed environment names, providers, and probe plan.
+4. Approve the displayed proposal through the local bound confirmation view.
+5. Let activation run the positive and known-failing negative probes in a
+   disposable copy. A missing verifier leaves the project in planning mode.
+6. Start the prepared work item as a bounded job and follow status by job ID.
+7. Answer blockers when needed, inspect the evidence-backed handover, and
+   acknowledge it locally. Only then can task create another work item.
 
-   ```bash
-   cd /path/to/project
-   cp .loop/candidate/project.adapter.json .loop/project.adapter.json
-   cp .loop/candidate/state.json          .loop/state.json
-   cp /path/to/template/core/workflow.json .loop/workflow.json
-   printf '# Blockers\n\n' > .loop/blockers.md
-   mkdir -p .loop/work-items .loop/evidence
-   printf '.loop/evidence/\n.loop/*.lock/\n.loop/dashboard.html\n' >> .gitignore
-   git add -A && git commit -m "Activate the build loop"
-   ```
+~~~mermaid
+flowchart LR
+    B[Working baseline] --> P[Prepared proposal]
+    P --> A[Bound approval]
+    A --> N[Positive and negative probes]
+    N --> J[Prepared work item starts as bounded job]
+    J --> H[Evidence-backed handover]
+~~~
 
-6. **Write the first work item** as `.loop/work-items/WI-001.md` (start from
-   `template/work-items/WI-001-template.md`). Fill in the title, the outcome,
-   and the constraints. Leave acceptance criteria, design, and slices empty;
-   the agent writes them in DEFINE and DESIGN. Make sure `state.json` names the
-   same id (`"work_item_id": "WI-001"`). Commit it.
-7. **Run the loop** from the template checkout and look at the dashboard:
+The Node entry point is:
 
-   ```bash
-   ./engine/orchestrator.sh start --root /path/to/project
-   ./engine/orchestrator.sh loop  --root /path/to/project \
-     --host codex --provider hosts/codex/provider.sh \
-     --review-host claude --review-provider hosts/claude/provider.sh --max-nodes 12
-   ./engine/render-dashboard.sh --root /path/to/project
-   ```
+~~~bash
+node bin/build-loop.mjs OPERATION --root /absolute/project \
+  --input /absolute/input.json --json
+~~~
 
-   Any agent pair works; using a different agent for review is recommended.
-   If the run stops with `BLOCKED`, read `.loop/blockers.md`, decide, tick the
-   box, and run `resume` followed by `loop` again.
+The shell entry point remains supported:
 
-## Things that are the same for every project type
+~~~bash
+./bootstrap/init.sh /absolute/project
+./engine/orchestrator.sh start --root /absolute/project
+./engine/orchestrator.sh loop --root /absolute/project \
+  --host codex --provider hosts/codex/provider.sh \
+  --review-host claude --review-provider hosts/claude/provider.sh \
+  --max-nodes 12
+~~~
 
-- The agent may change only the paths listed in the work item's execution
-  slices. Everything else is frozen for that step.
-- The referee runs your commands with a minimal environment. Put every
-  environment variable name a command needs into `environment.allow_names`
-  (never values, only names).
-- Anything that touches the outside world, such as deploying, flashing a
-  device in production, publishing a package, or paying a provider, is not a
-  loop step. It happens after HANDOVER, by a human.
-- Keep secrets out of the project adapter, the work item, and the commands.
+With the legacy initializer, follow its generated activation checklist instead
+of treating this page as activation authority.
+
+## Rules shared by every recipe
+
+- Worker edits stay within the active execution slice's allowed paths.
+- Frozen and protected paths cannot be changed to make the worker's own checks
+  pass.
+- Verification commands run with a minimal environment. Declare names, never
+  secret values.
+- Build and test output written inside the project needs an allowed output path.
+- Reviewer diversity can help, but fresh independent context and challenge
+  binding remain mandatory even when the provider names differ.
+- Deployment, publication, payment, production-device flashing, migration, and
+  other external effects happen only after a separate human decision.
+
+Use each recipe's command and version values as a starting point to review, not
+as defaults to accept automatically.

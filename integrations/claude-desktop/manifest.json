@@ -1,0 +1,22 @@
+{
+  "manifest_version": "0.3",
+  "name": "universal-build-loop",
+  "display_name": "Build Loop",
+  "version": "0.3.0",
+  "description": "Set up and control an evidence-backed local development loop from a conversation.",
+  "long_description": "Runs local project checks and separately installed AI worker CLIs. Requires Bash, jq, Git, and Perl. Project selection fixes the control root; it is not an operating-system sandbox. Approved commands run with your account privileges and workers may send project data to their model provider.",
+  "author": { "name": "Build Loop contributors" },
+  "tools_generated": true,
+  "server": {
+    "type": "node",
+    "entry_point": "bin/build-loop-mcp.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/bin/build-loop-mcp.mjs", "--root", "${user_config.project_root}"]
+    }
+  },
+  "user_config": {
+    "project_root": { "type": "directory", "title": "Project folder", "description": "Choose the project where approved commands will run. Use an empty folder for the demonstration, not your home folder or filesystem root.", "required": true }
+  },
+  "compatibility": { "platforms": ["darwin", "linux"], "runtimes": { "node": ">=22" } }
+}

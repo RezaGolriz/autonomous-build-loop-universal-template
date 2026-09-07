@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/control-activation.schema.json",
+  "title": "Managed activation binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "setup_digest", "activated_at", "distribution", "adapter_sha256", "workflow_sha256", "adapter_file_sha256", "workflow_file_sha256", "setup_evidence"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "setup_digest": {"$ref": "#/$defs/digest"},
+    "activated_at": {"type": "string", "format": "date-time"},
+    "distribution": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
+    "adapter_sha256": {"$ref": "#/$defs/digest"},
+    "workflow_sha256": {"$ref": "#/$defs/digest"},
+    "adapter_file_sha256": {"$ref": "#/$defs/digest"},
+    "workflow_file_sha256": {"$ref": "#/$defs/digest"},
+    "setup_evidence": {"type": "string", "pattern": "^\\.loop/control/setup-evidence/[0-9a-f]{64}\\.json$"}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

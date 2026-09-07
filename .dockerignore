@@ -1,0 +1,12 @@
+.git
+.loop
+node_modules
+dist
+graphify-out
+.graphify-cache
+*.tgz
+*.mcpb
+*.log
+.env
+.env.*
+coverage

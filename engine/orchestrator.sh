@@ -6,9 +6,10 @@ set -euo pipefail
 self_dir=$(cd "$(dirname "$0")" && pwd -P)
 engine="$self_dir/reference-engine.sh"
 repo_root=$(cd "$self_dir/.." && pwd -P)
+. "$self_dir/common.sh"
 die(){ echo "ERROR: $1" >&2; exit "${2:-64}"; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "missing executable: $1" 69; }
-need jq; need git
+need jq; need git; need shasum
 [ -x "$engine" ] || die 'reference engine missing' 69
 
 mode=${1:-}; [ -n "$mode" ] || die 'mode required'; shift
@@ -33,26 +34,46 @@ now(){ date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 lower(){ printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 head_rev(){ git -C "$root" rev-parse HEAD 2>/dev/null || echo unversioned; }
 
-# Copied verbatim from engine/reference-engine.sh so orchestrator writes cannot weaken it.
-validate_state(){
-  jq -e 'type=="object" and ((keys-["schema_version","work_item_id","phase","run_status","step","round","max_rounds","gate_failures_here","max_gate_failures","started_epoch","max_wall_seconds","autonomy","gates","last_result","next_action","updated_at"])|length==0) and .schema_version==1 and
-    (.work_item_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and (.phase as $p|["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"]|index($p)!=null) and
-    (.run_status as $s|["PAUSED","RUNNING","BLOCKED","WAITING_FOR_HUMAN","COMPLETED","CANCELLED"]|index($s)!=null) and
-    all([.step,.next_action,.updated_at][];type=="string" and length>0) and (.last_result|type=="string") and
-    all([.round,.max_rounds,.gate_failures_here,.max_gate_failures][];type=="number" and .>=0 and floor==.) and .max_rounds>=1 and .max_gate_failures>=1 and
-    (if .run_status=="RUNNING" then (.started_epoch|type=="number" and .>=0 and floor==.) and (.max_wall_seconds|type=="number" and .>=1 and floor==.) else ((.started_epoch//0)|type=="number") and ((.max_wall_seconds//1)|type=="number") end) and
-    (.autonomy as $a|["supervised","guarded","autonomous"]|index($a)!=null) and (.gates|type=="object" and (keys|sort)==(["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"]|sort)) and
-    all(.gates|to_entries[];.value|type=="object" and ((keys-["status","evidence_ids"])|length==0) and (.status as $x|["PENDING","PASSED","FAILED","NOT_APPLICABLE"]|index($x)!=null) and (.evidence_ids|type=="array" and length==(unique|length))) and .gates.REVIEW.status!="NOT_APPLICABLE"' "$1" >/dev/null
-}
+validate_state(){ loop_validate_state "$1"; }
 
 write_state(){
+  local tmp
   tmp=$(mktemp "$loop/.state.XXXXXX")
   jq "$@" "$state" > "$tmp" || { rm -f "$tmp"; die 'state update failed'; }
   validate_state "$tmp" || { rm -f "$tmp"; die 'resulting state invalid'; }
+  chmod --reference="$state" "$tmp" 2>/dev/null || :
   mv "$tmp" "$state"
 }
 
+acquire_orchestrator_lock(){
+  [ ! -e "$loop/engine.lock" ] || die 'workspace is already locked' 73
+  olock="$loop/orchestrator.lock"
+  olock_operation=$1
+  mkdir "$olock" 2>/dev/null || die 'another orchestrator or control mutation is active' 73
+  jq -n --arg operation "$olock_operation" --argjson pid "$$" --arg at "$(now)" \
+    '{schema_version:1,owner:"shell-orchestrator",operation:$operation,pid:$pid,acquired_at:$at}' > "$olock/owner.json"
+  trap 'release_orchestrator_lock' EXIT INT TERM
+}
+
+release_orchestrator_lock(){
+  [ -n "${olock:-}" ] || return 0
+  rm -f "$olock/owner.json" 2>/dev/null || :
+  rmdir "$olock" 2>/dev/null || :
+  olock=
+  olock_operation=
+}
+
 open_blockers(){ [ -f "$loop/blockers.md" ] || { echo 0; return; }; awk 'index($0,"- [ ]"){c++} END{print c+0}' "$loop/blockers.md"; }
+
+cap_reason(){
+  local started elapsed
+  [ "$(jq -r .round "$state")" -lt "$(jq -r .max_rounds "$state")" ] || { echo 'round cap reached'; return; }
+  [ "$(jq -r .gate_failures_here "$state")" -lt "$(jq -r .max_gate_failures "$state")" ] || { echo 'retry cap reached'; return; }
+  started=$(jq -r '.started_epoch // 0' "$state")
+  [ "$started" -gt 0 ] || { echo 'running state has no start time'; return; }
+  elapsed=$(( $(date +%s) - started ))
+  [ "$elapsed" -le "$(jq -r .max_wall_seconds "$state")" ] || { echo 'wall clock cap reached'; return; }
+}
 
 print_status(){
   jq -n --slurpfile s "$state" --slurpfile w "$workflow_file" --argjson ob "$(open_blockers)" '
@@ -103,7 +124,7 @@ current_slice(){ local st n; st=$(jq -r '.step' "$state"); n=$(slice_count); cur
   [ "$cur" -ge 1 ] 2>/dev/null || cur=1; [ "$n" -eq 0 ] || [ "$cur" -le "$n" ] || cur=$n; echo "$cur"; }
 
 build_brief(){
-  local task succ cap vids outs ap fp card prompt
+  local task succ cap vids outs ap fp card prompt answers answer_section
   task=$(phase_task "$phase"); succ=$(phase_success "$phase")
   cap=executor; [ "$phase" != REVIEW ] || cap=reviewer
   vids='["orchestrator"]'; outs='[]'
@@ -114,9 +135,10 @@ build_brief(){
   fi
   if [ "$phase" = EXECUTE ]; then
     slices=$(slice_count); cur=$(current_slice)
-    ap=$(paths_json "$(slice_col "$cur" 2 || true)"); [ "$ap" != '[]' ] || ap='["src/**","tests/**"]'
-    fp=$(paths_json "$(slice_col "$cur" 3 || true)"); [ "$fp" != '[]' ] || fp='["requirements/**"]'
-    if [ "$slices" -gt 0 ]; then task="Slice $cur of $slices: $(slice_col "$cur" 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//'). $task"; fi
+    [ "$slices" -gt 0 ] || die 'EXECUTE requires a declared execution slice'
+    ap=$(paths_json "$(slice_col "$cur" 2 || true)"); [ "$ap" != '[]' ] || die "execution slice $cur has no allowed paths"
+    fp=$(paths_json "$(slice_col "$cur" 3 || true)")
+    task="Slice $cur of $slices: $(slice_col "$cur" 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//'). $task"
   elif [ "$phase" = VALIDATE ]; then
     # Verification commands may write build or test output; allow every slice's paths, the agent itself changes nothing.
     ap=$(paths_json "$(printf '%s\n' ".loop/work-items/**"; n=$(slice_count); i=1; while [ "$i" -le "$n" ]; do slice_col "$i" 2 || true; i=$((i+1)); done)")
@@ -125,8 +147,11 @@ build_brief(){
     ap='[".loop/work-items/**"]'; fp='["requirements/**"]'
   fi
   card=$(host_card)
-  prompt=$(printf '%s\n\n# Work item %s (file: %s)\n\n%s\n\n# Current loop state\n\n%s\n\n# Node task (%s)\n\n%s\n\nSuccess condition: %s\n\n# Path policy for this node\n\nYou may change only these paths (glob patterns): %s\nFrozen for this node: %s\nEverything else must stay unchanged. For DEFINE, DESIGN and HANDOVER the work item file above is the only file to edit; the adapter protected_paths apply to product code, not to this edit. VALIDATE and REVIEW change nothing. Do not create cache or build files outside the allowed paths (run python with -B).\n' \
-    "$card" "$work" ".loop/work-items/$work.md" "$(cat "$wi")" "$(cat "$state")" "$phase" "$task" "$succ" "$(jq -r 'join(", ")' <<<"$ap")" "$(jq -r 'join(", ")' <<<"$fp")")
+  answers=$(human_blocker_answers)
+  answer_section=
+  [ "$answers" = '[]' ] || answer_section=$(printf '\n# Human blocker answers\n\nThe following read-only control records are human decisions for this work item and phase:\n\n%s\n' "$(jq . <<<"$answers")")
+  prompt=$(printf '%s\n\n# Work item %s (file: %s)\n\n%s\n\n# Current loop state\n\n%s\n%s\n# Node task (%s)\n\n%s\n\nSuccess condition: %s\n\n# Path policy for this node\n\nYou may change only these paths (glob patterns): %s\nFrozen for this node: %s\nEverything else must stay unchanged. For DEFINE, DESIGN and HANDOVER the work item file above is the only file to edit; the adapter protected_paths apply to product code, not to this edit. VALIDATE and REVIEW change nothing. The .loop/control directory is runner-owned and read-only to you. Do not create cache or build files outside the allowed paths (run python with -B).\n' \
+    "$card" "$work" ".loop/work-items/$work.md" "$(cat "$wi")" "$(cat "$state")" "$answer_section" "$phase" "$task" "$succ" "$(jq -r 'join(", ")' <<<"$ap")" "$(jq -r 'join(", ")' <<<"$fp")")
   jq -n --arg run "$run_id" --arg node "$(lower "$phase")-$round" --arg gate "$phase" --arg w "$work" \
     --arg p "$phase" --arg task "$task" --arg cap "$cap" --arg succ "$succ" --argjson v "$vids" \
     --argjson o "$outs" --argjson ap "$ap" --argjson fp "$fp" --argjson cap_n "$(jq -r .max_gate_failures "$state")" --arg prompt "$prompt" \
@@ -135,9 +160,37 @@ build_brief(){
       allowed_paths:$ap,frozen_paths:$fp,retry_cap:$cap_n,escalation_target:"human",prompt:$prompt}'
 }
 
+human_blocker_answers(){
+  local answer_dir="$loop/control/answers" answer_file answer_id answer expected actual
+  [ -d "$answer_dir" ] || { printf '[]\n'; return; }
+  for answer_file in "$answer_dir"/*.json; do
+    [ -e "$answer_file" ] || continue
+    jq -e --arg work "$work" --arg phase "$phase" '
+      type=="object" and keys==["answer","answer_id","answer_sha256","blocker_id","phase","recorded_at","schema_version","work_item_id"] and
+      .schema_version==1 and .work_item_id==$work and .phase==$phase and
+      (.answer_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and (.blocker_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+      (.answer|type=="string" and length>0) and (.recorded_at|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+      (.answer_sha256|test("^[0-9a-f]{64}$"))' "$answer_file" >/dev/null || die "invalid blocker answer: ${answer_file##*/}"
+    answer_id=$(jq -r .answer_id "$answer_file")
+    [ "${answer_file##*/}" = "$answer_id.json" ] || die "blocker answer filename mismatch: ${answer_file##*/}"
+    answer=$(jq -r .answer "$answer_file"); expected=$(jq -r .answer_sha256 "$answer_file")
+    actual=$(printf '%s' "$answer" | shasum -a 256 | awk '{print $1}')
+    [ "$actual" = "$expected" ] || die "blocker answer digest mismatch: ${answer_file##*/}"
+    jq -c '{answer_id,blocker_id,work_item_id,phase,answer,recorded_at,answer_sha256}' "$answer_file"
+  done | jq -s 'sort_by(.recorded_at,.answer_id)'
+}
+
 call_provider(){ # brief out err
-  local name; env_args=()
-  while IFS= read -r name; do env_args+=("$name=${!name-}"); done < <(jq -r '.environment.allow_names[]' "$adapter_file")
+  local name; env_args=(); env_seen='{}'
+  while IFS= read -r name; do
+    env_args+=("$name=${!name-}")
+    env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")
+  done < <(jq -r '.environment.allow_names[]' "$adapter_file")
+  for name in HOME USER LOGNAME SHELL CODEX_HOME CLAUDE_CONFIG_DIR CODEX_BIN CLAUDE_BIN CODEX_MODEL CLAUDE_MODEL PROVIDER_TIMEOUT; do
+    [ -n "${!name+x}" ] || continue
+    jq -e --arg name "$name" 'has($name)' <<<"$env_seen" >/dev/null && continue
+    env_args+=("$name=${!name}"); env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")
+  done
   ( cd "$root" && env -i "${env_args[@]}" LOOP_ROOT="$root" LOOP_PHASE="$phase" LOOP_RUN_ID="$run_id" \
       LOOP_WORK_ITEM="$work" "$use_prov" ) <"$1" >"$2" 2>"$3"
 }
@@ -145,11 +198,7 @@ call_provider(){ # brief out err
 has_section(){ awk -v h="$1" '$0==h{f=1;next} /^## /{f=0} f&&NF{c++} END{exit c?0:1}' "$wi"; }
 
 changed_paths(){ # baseline after
-  jq -n -r --slurpfile b "$1" --slurpfile a "$2" '
-    ((($b[0].files+$a[0].files)|map(.path)|unique)[]) as $p |
-    (($b[0].files|map(select(.path==$p))|.[0])//null) as $x |
-    (($a[0].files|map(select(.path==$p))|.[0])//null) as $y |
-    select($x!=$y) | select(($p|startswith(".loop/evidence/"))|not) | select($p!=".loop/engine.lock") | select(($p|startswith(".loop/orchestrator.lock"))|not) | $p'
+  loop_changed_paths "$1" "$2"
 }
 
 write_orch_evidence(){ # id type result observation
@@ -160,11 +209,99 @@ write_orch_evidence(){ # id type result observation
 }
 
 go_blocked(){ # text
+  local message=$1 action=${2:-resolve blocker} blocker_line
   mkdir -p "$loop"
   [ -f "$loop/blockers.md" ] || printf '# Blockers\n\n' > "$loop/blockers.md"
-  printf -- '- [ ] %s %s: %s\n' "$phase" "$run_id" "$1" >> "$loop/blockers.md"
-  write_state --arg n "$(now)" '.run_status="BLOCKED"|.last_result="blocked"|.next_action="resolve blocker"|.updated_at=$n'
+  blocker_line="- [ ] $phase $run_id: $message"
+  grep -Fqx -- "$blocker_line" "$loop/blockers.md" 2>/dev/null || printf '%s\n' "$blocker_line" >> "$loop/blockers.md"
+  persist_provider_stderr
+  write_state --arg n "$(now)" --arg action "$action" '.run_status="BLOCKED"|.last_result="blocked"|.next_action=$action|.updated_at=$n'
   print_status; exit 1
+}
+
+enforce_caps(){
+  local reason action
+  reason=$(cap_reason)
+  [ -z "$reason" ] && return 0
+  case "$reason" in
+    'round cap reached') action='raise max_rounds or cancel the run' ;;
+    'retry cap reached') action='raise max_gate_failures or cancel the run' ;;
+    'wall clock cap reached') action='raise max_wall_seconds or cancel the run' ;;
+    *) action='repair the invalid run budget before resuming' ;;
+  esac
+  go_blocked "$reason" "$action"
+}
+
+persist_provider_stderr(){
+  [ -n "${perr:-}" ] && [ -f "$perr" ] && [ -n "${run_id:-}" ] || return 0
+  mkdir -p "$evidence_dir/$run_id/logs"
+  cp "$perr" "$evidence_dir/$run_id/logs/provider.stderr" 2>/dev/null || :
+}
+
+record_supervisor_quarantine(){
+  local changed=$1 paths_json quarantine_tmp
+  paths_json=$(printf '%s\n' "$changed" | jq -Rsc 'split("\n")|map(select(length>0))|unique')
+  quarantine_tmp=$(mktemp "$loop/.quarantine.XXXXXX")
+  jq -n --arg work "$work" --arg phase "$phase" --arg run "$run_id" --arg at "$(now)" \
+    --argjson paths "$paths_json" --slurpfile before "$tmp/protected-before.json" '
+      {schema_version:1,work_item_id:$work,phase:$phase,run_id:$run,detected_at:$at,changed_paths:$paths,
+       expected:[$paths[] as $path|{path:$path,record:(($before[0].files|map(select(.path==$path))|.[0])//null)}]}' \
+    > "$quarantine_tmp"
+  chmod 600 "$quarantine_tmp" 2>/dev/null || :
+  mv "$quarantine_tmp" "$loop/quarantine.json"
+}
+
+check_supervisor_quarantine(){
+  local quarantine="$loop/quarantine.json" current
+  [ -e "$quarantine" ] || return 0
+  [ -f "$quarantine" ] && [ ! -L "$quarantine" ] || die 'runner metadata quarantine is unsafe' 73
+  jq -e '. as $quarantine|type=="object" and keys==["changed_paths","detected_at","expected","phase","run_id","schema_version","work_item_id"] and
+    .schema_version==1 and all([.work_item_id,.phase,.run_id,.detected_at][];type=="string" and length>0) and
+    (.changed_paths|type=="array" and length>0 and length==(unique|length) and all(.[];type=="string" and
+      (.==".loop/control" or startswith(".loop/control/") or .==".loop/evidence" or startswith(".loop/evidence/") or
+       .==".loop/engine.lock" or startswith(".loop/engine.lock/") or .==".loop/orchestrator.lock" or startswith(".loop/orchestrator.lock/")))) and
+    (.expected|type=="array" and length==($quarantine.changed_paths|length) and ([.[].path]|sort)==($quarantine.changed_paths|sort) and
+      all(.[];. as $entry|type=="object" and keys==["path","record"] and (.path|type=="string") and
+        (.record==null or (.record|type=="object" and keys==["kind","mode","path","sha256"] and .path==$entry.path and
+          (.kind=="file" or .kind=="symlink") and (.mode|test("^[0-7]{3,4}$")) and (.sha256|test("^[0-9a-f]{64}$"))))))' \
+    "$quarantine" >/dev/null 2>&1 || die 'runner metadata quarantine is invalid' 73
+  current=$(mktemp "${TMPDIR:-/tmp}/loop-quarantine-current.XXXXXX")
+  "$engine" protected-snapshot --root "$root" --output "$current"
+  # The prior owner record identifies the lock instance in which tampering was
+  # detected. A later recovery necessarily runs under a freshly acquired lock,
+  # so accept that one transient record only when it is the exact lock this
+  # process just acquired. Every other quarantined record remains byte-, type-,
+  # and mode-bound to the pre-provider snapshot.
+  if jq -e '.changed_paths|index(".loop/orchestrator.lock/owner.json")!=null' "$quarantine" >/dev/null; then
+    jq -e --arg operation "${olock_operation:-}" --argjson pid "$$" '
+      type=="object" and keys==["acquired_at","operation","owner","pid","schema_version"] and
+      .schema_version==1 and .owner=="shell-orchestrator" and .operation==$operation and .pid==$pid and
+      (.acquired_at|type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' \
+      "$olock/owner.json" >/dev/null 2>&1 || { rm -f "$current"; die 'runner metadata quarantine has no valid current lock owner' 73; }
+  fi
+  if jq -e --slurpfile current "$current" '
+      all(.expected[]; . as $expected |
+        ($expected.path==".loop/orchestrator.lock/owner.json" or
+         ((($current[0].files|map(select(.path==$expected.path))|.[0])//null)==$expected.record)))' "$quarantine" >/dev/null; then
+    rm -f "$current" "$quarantine"
+    return 0
+  fi
+  rm -f "$current"
+  die 'runner-owned metadata is quarantined; restore it or re-answer through trusted control' 73
+}
+
+assert_provider_preserved_supervisor_state(){
+  local changed
+  "$engine" protected-snapshot --root "$root" --output "$tmp/protected-after.json"
+  changed=$(loop_changed_paths "$tmp/protected-before.json" "$tmp/protected-after.json")
+  [ -z "$changed" ] || { record_supervisor_quarantine "$changed"; go_blocked "provider changed runner-owned metadata: $(printf '%s' "$changed" | tr '\n' ' ')"; }
+}
+
+assert_read_only_provider(){
+  local changed
+  "$engine" snapshot --root "$root" --output "$tmp/provider-after.json"
+  changed=$(changed_paths "$tmp/baseline.json" "$tmp/provider-after.json")
+  [ -z "$changed" ] || go_blocked "$phase provider changed the workspace: $(printf '%s' "$changed" | tr '\n' ' ')"
 }
 
 do_transition(){ # to [defect_class]
@@ -179,10 +316,21 @@ rework_target(){ case "$1" in requirement) echo DEFINE;; design) echo DESIGN;; *
 
 review_diff(){ # tracked changes plus every untracked file, so the reviewer sees the whole durable change
   local f
-  if git -C "$root" rev-parse HEAD >/dev/null 2>&1; then git -C "$root" diff HEAD -- . ':(exclude).loop'; else git -C "$root" status --short; fi
-  git -C "$root" ls-files --others --exclude-standard -- . ':(exclude).loop' | while IFS= read -r f; do
-    [ -n "$f" ] || continue; git -C "$root" diff --no-index -- /dev/null "$f" || :
-  done
+  (
+    cd "$root"
+    if git rev-parse HEAD >/dev/null 2>&1; then
+      git diff HEAD -- . ':(exclude).loop'
+      git ls-files -z --others --exclude-standard -- . ':(exclude).loop' | while IFS= read -r -d '' f; do
+        [ -n "$f" ] || continue; git diff --no-index -- /dev/null "./$f" || :
+      done
+    else
+      "$engine" snapshot --root "$root" --output "$tmp/review-current.json"
+      while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] || continue
+        git diff --no-index -- /dev/null "./$f" || :
+      done < <(jq -r '.files[].path|select(startswith(".loop/")|not)' "$tmp/review-current.json")
+    fi
+  )
 }
 handover_pending(){ [ "$(jq -r .run_status "$state")" = WAITING_FOR_HUMAN ] && [ "$(jq -r .phase "$state")" = HANDOVER ] && [ "$(jq -r .gates.HANDOVER.status "$state")" = PENDING ]; }
 should_continue(){ [ "$(jq -r .run_status "$state")" = RUNNING ] || handover_pending; }
@@ -198,32 +346,120 @@ require_files(){
   [ -f "$wi" ] || die "work item missing: $wi" 65
 }
 
+validate_managed_activation(){
+  local activation="$loop/control/activation.json" setup_path setup_digest expected actual setup_phys
+  [ -e "$activation" ] || return 0
+  [ -f "$activation" ] && [ ! -L "$activation" ] || die 'managed activation record is unsafe' 65
+  jq -e '
+    type=="object" and .schema_version==1 and
+    (.setup_digest|type=="string" and test("^[0-9a-f]{64}$")) and
+    (.activated_at|type=="string" and length>0) and (.distribution|type=="object") and
+    (.adapter_file_sha256|type=="string" and test("^[0-9a-f]{64}$")) and
+    (.workflow_file_sha256|type=="string" and test("^[0-9a-f]{64}$")) and
+    (.setup_evidence|type=="string")' "$activation" >/dev/null || die 'managed activation record is invalid' 65
+  expected=$(jq -r .adapter_file_sha256 "$activation"); actual=$(shasum -a 256 "$adapter_file" | awk '{print $1}')
+  [ "$expected" = "$actual" ] || die 'active adapter does not match managed activation' 65
+  expected=$(jq -r .workflow_file_sha256 "$activation"); actual=$(shasum -a 256 "$loop/workflow.json" | awk '{print $1}')
+  [ "$expected" = "$actual" ] || die 'active workflow does not match managed activation' 65
+  setup_digest=$(jq -r .setup_digest "$activation"); setup_path=$(jq -r .setup_evidence "$activation")
+  [ "$setup_path" = ".loop/control/setup-evidence/$setup_digest.json" ] || die 'managed setup evidence path does not match activation' 65
+  [ -f "$root/$setup_path" ] && [ ! -L "$root/$setup_path" ] || die 'managed setup evidence is missing or unsafe' 65
+  setup_phys=$(cd "$(dirname "$root/$setup_path")" 2>/dev/null && pwd -P) || die 'managed setup evidence parent is unsafe' 65
+  [ "$setup_phys" = "$loop/control/setup-evidence" ] || die 'managed setup evidence escapes control directory' 65
+  jq -e --arg digest "$setup_digest" '
+    type=="object" and .schema_version==1 and .setup_digest==$digest and
+    (.approval_id|type=="string" and length>0) and .status=="PASSED" and .target_unchanged==true' \
+    "$root/$setup_path" >/dev/null || die 'managed setup evidence is not a passing bound approval' 65
+}
+
+validate_job_ownership(){
+  local job_lock="$loop/control/job.lock" owner expected_job expected_lock
+  [ -e "$job_lock" ] || return 0
+  [ -d "$job_lock" ] && [ ! -L "$job_lock" ] || die 'managed job lock is unsafe' 73
+  owner="$job_lock/owner.json"
+  [ -f "$owner" ] && [ ! -L "$owner" ] || die 'managed job lock owner is unsafe' 73
+  jq -e 'type=="object" and keys==["created_at","job_id","lock_id","pid","request_id"] and
+    (.pid|type=="number" and .>=1 and floor==.) and
+    all([.created_at,.request_id,.job_id,.lock_id][];type=="string" and length>0)' "$owner" >/dev/null \
+    || die 'managed job lock owner is invalid' 73
+  expected_job=$(jq -r .job_id "$owner"); expected_lock=$(jq -r .lock_id "$owner")
+  [ -n "${LOOP_JOB_ID:-}" ] && [ "$LOOP_JOB_ID" = "$expected_job" ] &&
+    [ -n "${LOOP_JOB_LOCK_ID:-}" ] && [ "$LOOP_JOB_LOCK_ID" = "$expected_lock" ] ||
+    die 'workspace is owned by another managed job' 73
+}
+
+honor_control_intent(){
+  local intent="$loop/control/intent.json" intent_job desired current_status
+  [ -e "$intent" ] || return 0
+  [ -f "$intent" ] && [ ! -L "$intent" ] || die 'control intent is unsafe' 65
+  jq -e 'type=="object" and keys==["desired_status","job_id","request_id","requested_at","schema_version"] and
+    .schema_version==1 and (.job_id|type=="string" and length>0) and (.request_id|type=="string" and length>0) and
+    (.desired_status as $s|["RUNNING","PAUSED","CANCELLED"]|index($s)!=null) and (.requested_at|type=="string" and length>0)' "$intent" >/dev/null \
+    || die 'control intent is invalid' 65
+  intent_job=$(jq -r .job_id "$intent")
+  [ -n "${LOOP_JOB_ID:-}" ] && [ "$intent_job" = "$LOOP_JOB_ID" ] || die 'control intent does not match the active job' 65
+  desired=$(jq -r .desired_status "$intent")
+  [ "$desired" != RUNNING ] || return 0
+  acquire_orchestrator_lock intent
+  validate_job_ownership
+  require_files; validate_state "$state" || die 'state validation failed' 65
+  current_status=$(jq -r .run_status "$state")
+  if [ "$current_status" != "$desired" ] && [ "$current_status" != COMPLETED ] && [ "$current_status" != CANCELLED ] && \
+     { [ "$desired" != PAUSED ] || [ "$current_status" != BLOCKED ]; }; then
+    write_state --arg status "$desired" --arg at "$(now)" \
+      '.run_status=$status|.last_result=(if $status=="PAUSED" then "paused by control" else "cancelled by control" end)|.next_action=(if $status=="PAUSED" then "resume when ready" else "cancelled" end)|.updated_at=$at'
+  fi
+  release_orchestrator_lock
+  trap - EXIT INT TERM
+}
+
 case "$mode" in
 start)
   require_files
+  validate_state "$state" || die 'state validation failed' 65
+  validate_managed_activation
+  acquire_orchestrator_lock start
+  validate_job_ownership
+  require_files
+  check_supervisor_quarantine
+  validate_managed_activation
   [ "$(jq -r .run_status "$state")" = PAUSED ] || die 'start requires run_status PAUSED' 65
-  [ ! -e "$loop/engine.lock" ] || die 'workspace is already locked' 73
-  write_state --arg n "$(now)" --argjson e "$(date +%s)" '.run_status="RUNNING"|.started_epoch=$e|.updated_at=$n'
+  write_state --arg n "$(now)" --argjson e "$(date +%s)" '.run_status="RUNNING"|.started_epoch=(if (.started_epoch//0)>0 then .started_epoch else $e end)|.updated_at=$n'
+  phase=$(jq -r .phase "$state"); work=$(jq -r .work_item_id "$state"); round=$(jq -r .round "$state"); run_id="run-$work-$round-$(lower "$phase")"
+  enforce_caps
   print_status; exit 0;;
 status)
-  require_files; print_status; exit 0;;
+  require_files; validate_state "$state" || die 'state validation failed' 65; print_status; exit 0;;
 resume)
   require_files
+  validate_state "$state" || die 'state validation failed' 65
+  validate_managed_activation
+  acquire_orchestrator_lock resume
+  validate_job_ownership
+  require_files
+  check_supervisor_quarantine
+  validate_managed_activation
   [ "$(jq -r .run_status "$state")" = BLOCKED ] || die 'resume requires run_status BLOCKED' 65
   [ "$(open_blockers)" -eq 0 ] || die 'open blockers remain' 65
-  write_state --arg n "$(now)" --argjson e "$(date +%s)" '.run_status="RUNNING"|.started_epoch=$e|.last_result="resumed"|.next_action=("continue "+.phase)|.updated_at=$n'
+  write_state --arg n "$(now)" --argjson e "$(date +%s)" '.run_status="RUNNING"|.started_epoch=(if (.started_epoch//0)>0 then .started_epoch else $e end)|.last_result="resumed"|.next_action=("continue "+.phase)|.updated_at=$n'
+  phase=$(jq -r .phase "$state"); work=$(jq -r .work_item_id "$state"); round=$(jq -r .round "$state"); run_id="run-$work-$round-$(lower "$phase")"
+  enforce_caps
   print_status; exit 0;;
 loop)
   require_files
-  [ -n "$max_nodes" ] || max_nodes=1
+  validate_state "$state" || die 'state validation failed' 65
+  validate_managed_activation
+  [[ "$max_nodes" =~ ^[1-9][0-9]*$ ]] || die '--max-nodes must be a positive integer' 64
+  honor_control_intent
   i=0
-  while [ "$i" -lt "$max_nodes" ]; do
+  while [ "$i" -lt "$max_nodes" ] && should_continue; do
     set -- run --root "$root" --host "$host" --provider "$provider"
     [ -z "$review_host" ] || set -- "$@" --review-host "$review_host"
     [ -z "$review_provider" ] || set -- "$@" --review-provider "$review_provider"
     set +e; "$self_dir/orchestrator.sh" "$@" >/dev/null; rc=$?; set -e
     [ "$rc" -le 1 ] || die "run failed with exit $rc" "$rc"
     i=$((i+1))
+    honor_control_intent
     should_continue || break
   done
   print_status
@@ -234,34 +470,52 @@ next|run) ;;
 esac
 
 require_files
+validate_state "$state" || die 'state validation failed' 65
+validate_managed_activation
 [ -n "$host" ] || die '--host is required'
-phase=$(jq -r .phase "$state"); round=$(jq -r .round "$state")
-run_id="run-$work-$round-$(lower "$phase")"
-rev=$(head_rev)
-
-if [ "$mode" = next ]; then build_brief; exit 0; fi
+if [ "$mode" = run ] && [ -e "$loop/control/intent.json" ]; then
+  honor_control_intent
+  should_continue || { print_status; exit 0; }
+fi
+if [ "$mode" = next ]; then
+  phase=$(jq -r .phase "$state"); round=$(jq -r .round "$state"); run_id="run-$work-$round-$(lower "$phase")"; rev=$(head_rev)
+  build_brief; exit 0
+fi
 
 # ---- run ----
 [ -n "$provider" ] || die '--provider is required'
+acquire_orchestrator_lock run
+validate_job_ownership
+require_files
+check_supervisor_quarantine
+validate_state "$state" || die 'state validation failed' 65
+validate_managed_activation
+phase=$(jq -r .phase "$state"); round=$(jq -r .round "$state")
+run_id="run-$work-$round-$(lower "$phase")"
+rev=$(head_rev)
+if [ "$(jq -r .run_status "$state")" != RUNNING ]; then
+  handover_pending || die 'run requires run_status RUNNING' 65
+  write_state --arg n "$(now)" --argjson e "$(date +%s)" '.run_status="RUNNING"|.started_epoch=(if (.started_epoch//0)>0 then .started_epoch else $e end)|.updated_at=$n'
+fi
+enforce_caps
+if [ "$phase" = EXECUTE ]; then
+  slices=$(slice_count); [ "$slices" -gt 0 ] || go_blocked 'EXECUTE has no declared execution slice'
+  cur=$(current_slice); [ "$(paths_json "$(slice_col "$cur" 2 || true)")" != '[]' ] || go_blocked "execution slice $cur has no allowed paths"
+fi
 use_prov=$prov_abs; use_host=$host
 if [ "$phase" = REVIEW ]; then
   [ -z "$review_provider" ] || use_prov=$review_prov_abs
   [ -z "$review_host" ] || use_host=$review_host
 fi
 [ -x "$use_prov" ] || die "provider not executable: $use_prov" 69
-[ ! -e "$loop/engine.lock" ] || die 'workspace is already locked' 73
-if [ "$(jq -r .run_status "$state")" != RUNNING ]; then
-  handover_pending || die 'run requires run_status RUNNING' 65
-  write_state --arg n "$(now)" --argjson e "$(date +%s)" '.run_status="RUNNING"|.started_epoch=(if (.started_epoch//0)>0 then .started_epoch else $e end)|.updated_at=$n'
-fi
-
-olock="$loop/orchestrator.lock"; mkdir "$olock" 2>/dev/null || die 'another orchestrator run is active' 73; echo $$ > "$olock/pid"
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/loop-orch.XXXXXX"); trap 'rm -rf "$tmp"; rm -f "$olock/pid"; rmdir "$olock" 2>/dev/null||:' EXIT INT TERM
-mkdir -p "$evidence_dir" "$evidence_dir/$run_id/logs"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/loop-orch.XXXXXX")
+trap 'rm -rf "$tmp"; release_orchestrator_lock' EXIT INT TERM
+mkdir -p "$evidence_dir"
 "$engine" snapshot --root "$root" --output "$tmp/baseline.json"
+"$engine" protected-snapshot --root "$root" --output "$tmp/protected-before.json"
 build_brief > "$tmp/brief.json"
 jq 'del(.prompt)' "$tmp/brief.json" > "$tmp/node.json"
-perr="$evidence_dir/$run_id/logs/provider.stderr"
+perr="$tmp/provider.stderr"
 ev_ids=""; passed=1; defect=""
 
 if [ "$phase" = REVIEW ]; then
@@ -281,14 +535,21 @@ if [ "$phase" = REVIEW ]; then
   jq -n --slurpfile n "$tmp/node.json" --slurpfile c "$tmp/challenge.json" --arg prompt "$rprompt" --arg reviewer_host "$use_host" \
     '$n[0] + {run_id:$c[0].run_id, work_item_id:$c[0].work_item_id, nonce:$c[0].nonce, revision:$c[0].revision, evidence_refs:$c[0].evidence_refs, reviewer_host:$reviewer_host, prompt:$prompt}' > "$tmp/review-brief.json"
   set +e; call_provider "$tmp/review-brief.json" "$tmp/verdict.json" "$perr"; prc=$?; set -e
+  assert_provider_preserved_supervisor_state
+  assert_read_only_provider
+  mkdir -p "$evidence_dir/$run_id/logs"
   cp "$tmp/verdict.json" "$evidence_dir/$run_id/logs/provider.stdout" 2>/dev/null || :
   if [ "$prc" -ne 0 ] || ! jq -e . "$tmp/verdict.json" >/dev/null 2>&1; then go_blocked 'invalid verdict'; fi
   set +e; "$engine" validate-verdict --challenge "$tmp/challenge.json" --verdict "$tmp/verdict.json" --evidence-dir "$evidence_dir" >/dev/null 2>>"$perr"; vrc=$?; set -e
+  persist_provider_stderr
   [ "$vrc" -le 1 ] || go_blocked 'invalid verdict'
   ev_ids="review-$exec_run"
   [ "$vrc" -eq 0 ] || { passed=0; defect=$(jq -r '[.findings[]?|select(.disposition=="OPEN" and (.severity=="BLOCKING" or .severity=="HIGH"))][0].category // "artifact"' "$tmp/verdict.json"); }
 else
   set +e; call_provider "$tmp/brief.json" "$tmp/result.json" "$perr"; prc=$?; set -e
+  assert_provider_preserved_supervisor_state
+  case "$phase" in REVIEW|VALIDATE) assert_read_only_provider;; esac
+  mkdir -p "$evidence_dir/$run_id/logs"
   cp "$tmp/result.json" "$evidence_dir/$run_id/logs/provider.stdout" 2>/dev/null || :
   if [ "$prc" -ne 0 ] || ! jq -e 'type=="object"' "$tmp/result.json" >/dev/null 2>&1; then
     write_orch_evidence "$run_id-orchestrator" artifact FAILED "Provider failed or produced non-JSON output for $phase."
@@ -333,6 +594,7 @@ else
         [ "$result" = PASSED ] || { passed=0; defect=artifact; };;
     esac
   fi
+  persist_provider_stderr
 fi
 
 if [ "$passed" -eq 1 ]; then

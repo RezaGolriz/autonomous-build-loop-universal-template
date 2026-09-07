@@ -4,9 +4,9 @@ Goal: a small API that manages "orders": create an order, read it, list
 orders. The API publishes an OpenAPI description that clients rely on, so the
 loop must prove that the description and the real behavior match.
 
-This example uses Python with FastAPI, pytest, and Schemathesis for the
-contract check. Any language works the same way: you need a test command and a
-contract command.
+This illustrative recipe uses Python with FastAPI, pytest, and Schemathesis.
+Confirm current package APIs and commands in your own repository; this page is
+not a runnable fixture.
 
 ## 1. Project skeleton
 
@@ -88,16 +88,20 @@ each phase to cover every required evidence type together; here `test` and
 `contract-fast` do that for EXECUTE:
 
 ```json
-"commands": [
+{
+  "commands": [
   {"id":"test","phase":"EXECUTE","cwd":".","argv":["make","test"],"timeout_seconds":300,"evidence_types":["command","acceptance","behavior"]},
   {"id":"contract-fast","phase":"EXECUTE","cwd":".","argv":["make","contract"],"timeout_seconds":600,"evidence_types":["command","contract"]},
   {"id":"contract","phase":"VALIDATE","cwd":".","argv":["make","contract"],"timeout_seconds":600,"evidence_types":["command","acceptance","behavior","contract"]}
-]
+  ]
+}
 ```
 
-## 3. Activate
+## 3. Prepare and activate
 
-Follow the common steps in [README.md](README.md#the-seven-steps-every-example-follows).
+Follow the [common setup](README.md#common-setup). Review the active Python
+environment, commands, paths, and contract evidence in the confirmation view.
+Activation runs the approved checks in a disposable copy.
 Make sure the virtual environment is activated in the shell that runs the
 loop, because the referee passes `PATH` and `VIRTUAL_ENV` through to the
 commands.
@@ -146,6 +150,12 @@ Handover is not authorization to merge, publish, release or deploy.
 ```
 
 ## 5. Run
+
+From Codex or Claude Desktop, ask the connected build-loop interface to create
+this work item, start a bounded job, and show its status. The worker provider
+still needs its own installed and authenticated CLI.
+
+The equivalent shell path is:
 
 ```bash
 ./engine/orchestrator.sh start --root /path/to/orders-api

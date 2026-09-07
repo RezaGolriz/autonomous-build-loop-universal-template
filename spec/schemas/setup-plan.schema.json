@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/setup-plan.schema.json",
+  "title": "Digest-bound supervised setup plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "setup_digest", "created_at", "adapter_source", "source", "distribution", "config_hashes", "negative_control", "requested_scope", "approval_status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "setup_digest": {"$ref": "#/$defs/digest"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "adapter_source": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object", "additionalProperties": false, "required": ["files", "digest"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "files": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind"], "properties": {"path": {"type": "string", "minLength": 1}, "kind": {"enum": ["file", "symlink"]}, "mode": {"type": "integer", "minimum": 0, "maximum": 511}, "sha256": {"$ref": "#/$defs/digest"}, "target": {"type": "string"}}}}
+      }
+    },
+    "distribution": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
+    "config_hashes": {"type": "object", "additionalProperties": false, "required": ["adapter_sha256", "workflow_sha256", "state_sha256", "work_item_sha256", "negative_control_sha256"], "properties": {"adapter_sha256": {"$ref": "#/$defs/digest"}, "workflow_sha256": {"$ref": "#/$defs/digest"}, "state_sha256": {"$ref": "#/$defs/digest"}, "work_item_sha256": {"$ref": "#/$defs/digest"}, "negative_control_sha256": {"$ref": "#/$defs/digest"}}},
+    "negative_control": {"$ref": "#/$defs/negative"},
+    "requested_scope": {"type": "object", "additionalProperties": false, "required": ["request", "acceptance_criteria", "out_of_scope", "allowed_paths", "frozen_paths"], "properties": {"request": {"type": "string", "minLength": 1}, "acceptance_criteria": {"$ref": "#/$defs/strings"}, "out_of_scope": {"$ref": "#/$defs/strings"}, "allowed_paths": {"$ref": "#/$defs/strings"}, "frozen_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}},
+    "approval_status": {"const": "PENDING"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "strings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "argv": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "negative": {"type": "object", "additionalProperties": false, "required": ["argv", "cwd", "timeout_seconds", "expected_exit_code", "expected_output"], "properties": {"argv": {"$ref": "#/$defs/argv"}, "cwd": {"type": "string", "minLength": 1}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}, "expected_exit_code": {"type": "integer", "minimum": 1, "maximum": 255}, "expected_output": {"type": "object", "additionalProperties": false, "required": ["stream", "match", "value"], "properties": {"stream": {"enum": ["stdout", "stderr", "combined"]}, "match": {"enum": ["equals", "includes"]}, "value": {"type": "string", "minLength": 1}}}}}
+  }
+}
