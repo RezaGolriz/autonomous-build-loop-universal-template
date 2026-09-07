@@ -31,19 +31,93 @@ required by operations that need structured arguments. Results are JSON;
 | prepare | loop_prepare | Build a setup proposal and activation plan | Never |
 | request-approval | loop_request_approval | Open the local bound confirmation view | Never |
 | activate | loop_activate | Validate the approved proposal and run approved probes in a disposable copy | Approved probes only |
-| task | loop_task | Create the next bounded work item after completion | Never by itself |
-| start | loop_start | Create a durable bounded job from an activated state | May start authorized work |
-| run | loop_run | Advance a bounded number of nodes | Declared project verifiers only |
+| task | loop_task | Create the next bounded work item after completion | Never by itself; refused with PROJECT_ON_HOLD while the project is on hold |
+| start | loop_start | Create a durable bounded job from an activated state | May start authorized work; refused with AUTHORIZATION_REVOKED while the item's authorization is PAUSED |
+| run | loop_run | Advance a bounded number of nodes | Declared project verifiers only; refused with AUTHORIZATION_REVOKED while the item's authorization is PAUSED |
 | status | loop_status | Read project and job progress | Never |
 | answer | loop_answer | Record one scoped response to a blocker | Never by itself |
 | pause | loop_pause | Stop further job advancement while preserving state | No new commands |
 | cancel | loop_cancel | Cancel continuation while preserving the audit record | No new commands |
-| resume | loop_resume | Continue a resolved blocked or paused job within its existing authority | Declared project verifiers only |
+| resume | loop_resume | Continue a resolved blocked or paused job within its existing authority | Declared project verifiers only; refused with AUTHORIZATION_REVOKED while the item's authorization is PAUSED |
 | handover | loop_handover | Acknowledge a passed handover or cancellation and complete the local work item | Never grants delivery |
+| check | loop_check | Report run status, phase, handover readiness, review verdict, gates, blockers, and backlog and inbox counts | Never; it changes nothing |
+| tick | loop_tick | One cadence step: report, advance one node, or start an item a person already authorized as READY | May advance already authorized work; never grants approval, and stops when that authorization is revoked, expired or invalid |
+| backlog_add | loop_backlog_add | Write a work item from the template and append it to the ordered backlog | Never; it starts nothing |
+| backlog_list | loop_backlog_list | List the ordered backlog with the authorization state of each item | Never |
+| backlog_remove | loop_backlog_remove | Remove one entry from the ordered backlog and keep its files | Never |
+| accept | loop_accept | Human-only: archive an accepted run to local history and promote the next backlog item. From MCP it returns a confirmation link instead of completing | Never grants delivery |
+| authorize | loop_authorize | Human-only: record scope, budget, and expiry so an item may start when its slot comes. From MCP it returns a confirmation link instead of completing | Never starts a run by itself |
+| deauthorize | loop_deauthorize | Set the authorization of an item back to PAUSED and place a project-wide hold | Never |
+| hold | loop_hold | Stop everything in this project now: while the hold is on, start, run, resume, tick, task and scout are refused with PROJECT_ON_HOLD for every caller that is not a person at an interactive terminal | Never; it takes authority away |
+| release | loop_release | Human-only: take the project-wide hold off. From MCP it returns a confirmation link instead of completing | Never starts anything |
+| scout | loop_scout | Look for work in a disposable copy of the project and write inert proposals into the inbox | Only a bundled read-only provider wrapper; never the project itself |
+| inbox_list | loop_inbox_list | List the scout proposals waiting for a person | Never |
+| promote | loop_promote | Human-only: move one inbox proposal into the backlog as a work item. From MCP it returns a confirmation link instead of completing | Never; it starts nothing |
+| discard | loop_discard | Drop one proposal from the inbox and keep its file under discarded | Never |
 
 The MCP server also exposes loop_request_approval as a special no-argument tool.
 The CLI spelling contains a hyphen; MCP operation tool names use underscores
 only where required by the client protocol.
+
+accept, authorize, promote and release are human decisions, and only a person
+may complete one. At an interactive terminal they ask for the literal word
+ACCEPT, AUTHORIZE, PROMOTE or RELEASE, and the typed word completes the
+decision; the record keeps the channel `interactive-tty`.
+
+Placing a hold is the opposite direction and needs no confirmation at all: any
+channel may call hold, and deauthorize places one by itself. While
+`.loop/control/hold.json` exists, start, run, resume, tick, task and scout are
+refused with PROJECT_ON_HOLD from every channel except a person at an
+interactive terminal; cancel, handover and every read-only operation keep
+working. The Bash orchestrator applies the same rule to start, run and loop, and
+prints a warning line even for the person it lets through.
+
+Every other transport — an input file on the command line, or an MCP tool call —
+cannot complete such a decision, whatever word it passes. The call returns
+`{"ok": true, "pending_confirmation": true, "confirmation_url": "http://127.0.0.1:…"}`
+instead: a local page, bound to that one operation, that one item and the fully
+resolved decision frozen at that moment — the exact authorization record that
+would be written, the run and its HANDOVER evidence for an acceptance, the sha256
+of the proposal text for a promotion. The page displays that frozen decision and
+asks the person to type the word into a field, which the server checks together
+with the single-use token. Nothing is written until then. The receipt is signed
+by the local host over the request id and a digest of the frozen request, the
+operation is carried out, and the record keeps the channel `local-http-user` with
+the assurance `local-user-action`. A model must hand that link to the person and
+never open it itself. The request expires after fifteen minutes, and repeating
+the same call returns the same link rather than a second one.
+
+Before the decision is carried out, the digest is recomputed from the frozen
+request on disk, the request is claimed by an atomic rename so two settlements
+cannot run it twice, and the runner re-checks the live item under the lock that
+does the work. Anything that changed is refused with `CONFIRMATION_STALE` and the
+request is discarded.
+
+Assurance is `local-user-action` for both routes: a person with access to this
+machine typed the word. The page is served on loopback, so an agent with shell
+access on the same computer could in principle open it. A project that needs more
+writes `.loop/control/policy.json` by hand with
+`{"schema_version": 1, "human_confirmation": "tty-only"}`; accept, authorize and
+promote from an input file or a tool call are then refused with
+`CONFIRMATION_TTY_ONLY` and the exact terminal command, which carries every
+argument through `--input` so nothing has to be retyped and nothing falls back
+to the current item. Anything still pending on a page is discarded, and a policy
+file that does not match its schema is refused with `INVALID_POLICY` rather than
+defaulting; while it is broken only the terminal decides, and `status`, `check`
+and both dashboards name the error. No operation writes that file.
+
+If the confirmation page is closed before the operation ran, the receipt it left
+is settled by the next accept, authorize, promote or tick call.
+
+An authorization record that does not validate is invalid rather than absent:
+status and check report its state as INVALID, nothing starts from it, and a
+person has to write it again. A record in state PAUSED is a withdrawn decision
+rather than an absent one: start, run and resume are refused with
+AUTHORIZATION_REVOKED unless a person is doing it at their own terminal. That includes a record whose `item_id` is not the
+item whose sidecar it is: a decision applies only to the item it names, so a
+record copied into another item's sidecar authorizes nothing there. A scout runs only a bundled provider wrapper —
+the one shipped for that host, or the one configure generated around it — and
+there is no input field for naming another executable.
 
 The CLI also has an interactive-only approve alternative. It displays the
 project, request, scope, and setup digest in a real TTY and requires the human
@@ -52,11 +126,26 @@ is no MCP approve tool, and an agent must never answer the TTY prompt.
 
 ## Input expectations
 
-inspect, options, dashboard, doctor, activate, pause, cancel, and request-approval use an empty
-object. The CLI can omit --input for them.
+inspect, options, dashboard, doctor, activate, pause, cancel, check,
+backlog_list, inbox_list, and request-approval use an empty object. The CLI can omit --input
+for them. check exits with 0 when a handover is waiting or the run is finished,
+3 while the run is not done, 4 when it is blocked, and 2 on an error.
 
-demo, configure, prepare, task, start, run, answer, resume, and handover take
-structured JSON input. Keep these files outside generated evidence and free of
+tick takes an optional `max_nodes` between 1 and 500, default 1, and can be
+called without input. It exits 0 whatever the loop turned out to be doing, and 2
+only when the operation itself failed, so a scheduler treats a quiet project and
+a busy one alike. Its result carries `action` (`ran-node`, `started`,
+`reported`, or `nothing`), `reason`, and the full check output. `--input`
+normally names a JSON file; a value that already starts with `{` is read as the
+JSON object itself, which keeps a scheduled one-liner readable:
+
+~~~bash
+build-loop tick --root /absolute/project --input '{"max_nodes":1}'
+~~~
+
+demo, configure, prepare, task, start, run, answer, resume, handover,
+backlog_add, backlog_remove, accept, authorize, deauthorize, hold, release,
+scout, promote, and discard take structured JSON input. Keep these files outside generated evidence and free of
 secrets. The accepted operation inputs are:
 
 | Operation | Required fields | Optional fields |
@@ -68,6 +157,17 @@ secrets. The accepted operation inputs are:
 | start, run, resume | request_id and either run_mode or max_nodes | explicit max_nodes with bounded mode |
 | answer | answer and exactly one of blocker_id or blocker_index | — |
 | handover | note | — |
+| backlog_add | title, outcome | id, work_kind |
+| backlog_remove | id | — |
+| accept | confirm: ACCEPT | note |
+| authorize | confirm: AUTHORIZE, and allowed_paths the first time an item is authorized | item_id, max_rounds, max_wall_seconds, expires_in_seconds, stop_on_first_failure, note |
+| deauthorize | — | item_id |
+| hold | — | reason, item_id |
+| release | confirm: RELEASE | — |
+| tick | — | max_nodes |
+| scout | — | provider, profile, work_kind |
+| promote | proposal_id | id, work_kind |
+| discard | proposal_id | — |
 
 configure accepts codex, claude, or mock as host values. With only host set, the
 provider path uses the bundled wrapper for that host, the reviewer host defaults
@@ -226,8 +326,40 @@ Required target files live under .loop/: state.json, project.adapter.json,
 workflow.json, and `work-items/<work-item-id>.md`. Evidence and provider logs are
 runner-owned.
 
+| File | Written by | Read by | Meaning |
+|---|---|---|---|
+| .loop/notes/next-steps.md | run mode, after the HANDOVER gate and its evidence are recorded | the next DEFINE brief, every scout brief | Advisory memory between cycles: summary, three priorities, suggested next item, evidence references. It approves nothing and widens no scope. `accept` copies it into history and leaves the live note in place. |
+
 During DEFINE, DESIGN, and HANDOVER, the provider edits the work item. During
-EXECUTE it edits one slice and the engine runs the declared checks. REVIEW uses
+EXECUTE it edits one slice and the engine runs the declared checks.
+
+When the current work item has a valid READY authorization sidecar, that
+authorization is an outer boundary on paths and on the budget, in addition to
+the slice table and the protected paths. `start`, `resume` and every `run` node
+apply the smaller of the recorded caps and the authorized `budget` to
+`max_rounds` and `max_wall_seconds` in `state.json` — the same rule the control
+layer applies, so the caps only ever move down and rounds already used and time
+already spent are never reset. After DESIGN, every path the slice table declares has to be
+covered by `scope.allowed_paths`, or the DESIGN gate fails with "slice path
+outside authorized scope". After an EXECUTE or VALIDATE node, every changed path
+outside `.loop/` has to be covered as well, or the run is BLOCKED with orchestrator
+evidence naming the path. A slice may narrow the authorized scope; it can never
+reach outside it.
+
+A sidecar in state PAUSED is a withdrawn decision, and the orchestrator treats it
+the way the control layer does: `start`, `resume` and `run` are refused with
+`AUTHORIZATION_REVOKED` and exit 77, and nothing about the run is changed. Only a
+person may proceed — standard input has to be a terminal, or the invocation has
+to be a managed job whose human entry the control layer recorded in
+`.loop/control/current-job.json` for exactly this job and item. The record still
+bounds that run: its `scope.allowed_paths` are enforced as usual and its budget
+only narrows the caps. Where no pseudo-terminal can be provided,
+`BUILD_LOOP_HUMAN_TTY=1` stands in for the terminal check; it is refused whenever
+a managed job is in play, and the Node worker strips the name from the
+environment it passes down. Every sidecar is validated in full whatever state it
+claims, so a PAUSED record that does not validate is broken rather than inert and
+blocks the run like any other broken record. A work item with no sidecar at all
+is a manual item, unchanged in every respect. REVIEW uses
 a fresh provider process and nonce-bound verdict. VALIDATE reruns the required
 acceptance and regression evidence. The engine alone performs legal
 transitions.

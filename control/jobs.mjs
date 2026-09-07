@@ -7,9 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { signHostConfiguration, verifyApproval, verifyHostConfiguration } from './approval-store.mjs';
 import {
   ControlError, acquireDirLock, assertControlPath, assertNoEngineLock, atomicJson, atomicText, exactKeys,
-  effectivePath, ensureRuntimeIgnore, exists, jsonDigest, nonce, now, readJson, safeRelativeArray, sha256, stringArray, stringValue,
+  confirmationPolicy, effectivePath, ensureRuntimeIgnore, exists, jsonDigest, nonce, now, readJson, safeRelativeArray, sha256, stringArray, stringValue,
 } from './common.mjs';
 import { activateProject, bundleRoot, distributionHashes, runBounded, verifyPlanForApproval } from './setup.mjs';
+import { authorizationExpired, backlogSummary, inboxCount, readAuthorization } from './backlog.mjs';
+import { assertNotHeld, holdSummary } from './hold.mjs';
+import { writeNextSteps } from './notes.mjs';
 
 const orchestrator = path.join(bundleRoot, 'engine', 'orchestrator.sh');
 const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'worker.mjs');
@@ -141,8 +144,8 @@ function renderWorkItem(id, args) {
   return `# ${id}: ${oneLine(args.request.split(/\r?\n/, 1)[0].slice(0, 120))}\n\nKind: ${validateKind(args.work_kind)}\n\n## Outcome\n\n${quoteBlock(args.request)}\n\n## Acceptance criteria\n\n${args.acceptance_criteria.map((v, i) => `- AC-${i + 1}: ${oneLine(v)}`).join('\n')}\n\n## Out of scope\n\n${args.out_of_scope.map((v) => `- ${oneLine(v)}`).join('\n')}\n\n## Constraints and invariants\n\n- Preserve the approved adapter, workflow, and external-action boundaries.\n- ${workKinds[validateKind(args.work_kind)].guidance}\n\n## Design\n\n## Execution slices\n\n| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |\n|---|---|---|---|---|\n| 1 | ${args.allowed_paths.map((v) => `\`${v}\``).join(', ')} | ${(args.frozen_paths || []).map((v) => `\`${v}\``).join(', ') || 'none'} | configured adapter commands | runner evidence |\n\n## Independent review\n\n## Validation\n\n## Handover\n`;
 }
 
-export async function createTask(root, args) {
-  const { loop } = await assertControlPath(root); await assertNoEngineLock(root); await verifyActivationBinding(root);
+export async function createTask(root, args, channel = 'mcp-user') {
+  const { loop } = await assertControlPath(root); await assertNotHeld(root, channel, 'task'); await assertNoEngineLock(root); await verifyActivationBinding(root);
   stringValue(args.request, 'request', { max: 20000 }); stringArray(args.acceptance_criteria, 'acceptance_criteria', { min: 1 }); stringArray(args.out_of_scope, 'out_of_scope', { min: 1 }); safeRelativeArray(args.allowed_paths, 'allowed_paths', 1); safeRelativeArray(args.frozen_paths || [], 'frozen_paths');
   let id = args.work_item_id;
   const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: 'task' });
@@ -274,8 +277,18 @@ async function recoverStaleJob(root) {
   }
 }
 
+// BUILD_LOOP_HUMAN_TTY is the documented test override that tells the Bash
+// orchestrator a person is sitting at the terminal. A managed job is never a
+// person, so the worker and everything below it run without it: the name is
+// deleted rather than left unset, so an inherited value cannot travel down.
+export function managedEnvironment(extra = {}) {
+  const environment = { ...process.env, PATH: effectivePath(), ...extra };
+  delete environment.BUILD_LOOP_HUMAN_TTY;
+  return environment;
+}
+
 async function spawnDetachedWorker(root, jobId, stdoutFd, stderrFd) {
-  const worker = spawn(process.execPath, [workerPath, root, jobId], { detached: true, stdio: ['ignore', stdoutFd, stderrFd], env: { ...process.env, PATH: effectivePath(), LOOP_JOB_ID: jobId } });
+  const worker = spawn(process.execPath, [workerPath, root, jobId], { detached: true, stdio: ['ignore', stdoutFd, stderrFd], env: managedEnvironment({ LOOP_JOB_ID: jobId }) });
   await new Promise((resolve, reject) => { worker.once('spawn', resolve); worker.once('error', reject); });
   worker.unref(); return worker;
 }
@@ -302,16 +315,58 @@ async function failUnspawnedJob(root, control, job, jobLock, requestIndexFile, e
   } finally { await jobLock.release(); }
 }
 
-export async function launchJob(root, mode, args) {
+// Only a word typed at a real terminal is a person by itself. Every other
+// transport into start, run and resume is something an agent can call.
+const humanEntryChannel = 'interactive-tty';
+
+// A sidecar that cannot be read or does not validate is a broken decision, not
+// an absent one, and an expired READY record grants nothing. Either way nothing
+// may start or continue on it: the person has to repair the record first.
+//
+// A sidecar in state PAUSED is the third case: it is not "no decision", it is a
+// decision that was withdrawn or has not been given yet, so it means "a person
+// must act". Direct execution is refused on it as well, whichever entry point
+// it comes through, unless the call itself came from a person at a terminal —
+// and even then the record's own scope and budget still bound the run. An item
+// with no sidecar at all is a manual item and is unaffected.
+function assertUsableAuthorization(itemId, record, human = false) {
+  if (record?.invalid) {
+    throw new ControlError('AUTHORIZATION_INVALID', `the authorization record for ${itemId} is invalid: ${record.reason}. Fix or delete .loop/work-items/${itemId}.authorization.json, then start the run again`, { item_id: itemId, reason: record.reason });
+  }
+  if (record?.state === 'READY' && authorizationExpired(record)) {
+    throw new ControlError('AUTHORIZATION_EXPIRED', `authorization for ${itemId} expired at ${record.expires_at}; a person has to authorize it again`, { item_id: itemId, expires_at: record.expires_at });
+  }
+  if (record?.state === 'PAUSED' && !human) {
+    throw new ControlError('AUTHORIZATION_REVOKED', `the authorization for ${itemId} is PAUSED, so a person has to act: authorize the item again, or start it from an interactive terminal`, { item_id: itemId, authorization_state: 'PAUSED' });
+  }
+}
+
+export function handoverNodePending(state) {
+  return state?.run_status === 'WAITING_FOR_HUMAN' && state.phase === 'HANDOVER' && state.gates?.HANDOVER?.status === 'PENDING';
+}
+
+export async function launchJob(root, mode, args, channel = 'mcp-user') {
   const { loop, control } = await assertControlPath(root);
+  const human = channel === humanEntryChannel;
+  // A project-wide hold stops every automated launch, whichever caller got
+  // here — the control layer's own tick included. See control/hold.mjs.
+  await assertNotHeld(root, channel, mode);
   await recoverStaleJob(root); await assertNoEngineLock(root);
-  const activation = await verifyActivationBinding(root); let state = await readJson(path.join(loop, 'state.json'), 'state'); let config = await readJson(path.join(loop, 'host.local.json'), 'host.local.json'); await verifyHostConfiguration(root, config); const initialStateDigest = jsonDigest(state);
+  const activation = await verifyActivationBinding(root); let state = await readJson(path.join(loop, 'state.json'), 'state');
+  // A READY authorization carries the budget a person already agreed to. An
+  // expired one grants nothing and must be refused rather than silently ignored,
+  // and a PAUSED one stops every entry point that is not a person.
+  const authorization = await readAuthorization(loop, state.work_item_id).catch(() => null);
+  assertUsableAuthorization(state.work_item_id, authorization, human);
+  let config = await readJson(path.join(loop, 'host.local.json'), 'host.local.json'); await verifyHostConfiguration(root, config); const initialStateDigest = jsonDigest(state);
   let scope = { operation: mode, max_nodes: args.max_nodes, work_item_id: state.work_item_id, activation_digest: activation.setup_digest || 'legacy', host_config_digest: jsonDigest(config) };
   const requestIndexFile = path.join(control, 'request-index.json'); let requestIndex = await exists(requestIndexFile) ? await readJson(requestIndexFile) : { schema_version: 1, requests: {} };
   const prior = await priorRequest(root, requestIndex, args.request_id, scope); if (prior) return prior;
   if (mode === 'start' && state.run_status !== 'PAUSED') throw new ControlError('INVALID_STATE', 'start requires PAUSED state');
   if (mode === 'resume' && !['BLOCKED', 'PAUSED'].includes(state.run_status)) throw new ControlError('INVALID_STATE', 'resume requires BLOCKED or PAUSED state');
-  if (mode === 'run' && !['PAUSED', 'RUNNING'].includes(state.run_status)) throw new ControlError('INVALID_STATE', 'run requires PAUSED or RUNNING state');
+  // WAITING_FOR_HUMAN with a still pending HANDOVER gate is "the handover node
+  // has not run yet", not "waiting for a person"; the node itself may still run.
+  if (mode === 'run' && !['PAUSED', 'RUNNING'].includes(state.run_status) && !handoverNodePending(state)) throw new ControlError('INVALID_STATE', 'run requires PAUSED or RUNNING state');
   if (state.round >= state.max_rounds) throw new ControlError('ROUND_CAP_REACHED', 'round cap is already reached');
   if (state.started_epoch > 0 && Math.floor(Date.now() / 1000) - state.started_epoch > state.max_wall_seconds) throw new ControlError('WALL_CAP_REACHED', 'original wall-clock cap is already reached');
   if (!await executable(config.provider_path) || !await executable(config.review_provider_path)) throw new ControlError('PROVIDER_NOT_INSTALLED', 'configured provider or review provider is not executable');
@@ -333,9 +388,45 @@ export async function launchJob(root, mode, args) {
     if (jsonDigest(currentScope) !== jsonDigest(scope) || jsonDigest(state) !== initialStateDigest) throw new ControlError('LAUNCH_SCOPE_CHANGED', 'work item, state, activation, or provider configuration changed while the job was starting');
     requestIndex = await exists(requestIndexFile) ? await readJson(requestIndexFile) : requestIndex;
     const concurrent = await priorRequest(root, requestIndex, args.request_id, scope); if (concurrent) { await coordinationLock(); await jobLock.release(); return concurrent; }
-    job = { schema_version: 1, job_id: jobId, request_id: args.request_id, operation: mode, status: 'QUEUED', desired_status: 'RUNNING', max_nodes: args.max_nodes, nodes_completed: 0, created_at: now(), started_at: null, finished_at: null, pid: null, exit_code: null, last_error: null, lock_id: jobLock.lock_id, work_item_id: state.work_item_id, phase_at_launch: state.phase, state_at_launch_digest: initialStateDigest, activation_digest: scope.activation_digest, host_config_digest: scope.host_config_digest, bound_config: config };
+    // The authorization is read again here, under the coordination lock, so a
+    // decision withdrawn between the caller's check and this launch is seen.
+    const record = await readAuthorization(loop, state.work_item_id).catch(() => null);
+    assertUsableAuthorization(state.work_item_id, record, human);
+    let authorizationRef = null;
+    // A PAUSED record that a person is starting by hand. The decision is not a
+    // permission any more, but what it says about scope and budget is still the
+    // outer boundary of this run, and the record of who let it through is kept
+    // with the job so the Bash orchestrator can see it too.
+    let humanEntry = null;
+    if (record?.state === 'READY') {
+      authorizationRef = { item_id: record.item_id, authorized_by: record.authorized_by, authorized_at: record.authorized_at, expires_at: record.expires_at ?? null, stop_on_first_failure: record.stop_on_first_failure !== false, assurance: record.assurance ?? null };
+    } else if (record?.state === 'PAUSED') {
+      humanEntry = { item_id: record.item_id, channel, at: now() };
+    }
+    if (record?.budget && (authorizationRef || humanEntry)) {
+      // The budget a person agreed to applies wherever the item is actually
+      // started, not only through `start`. A fresh start takes the authorized
+      // caps; continuing a run that is already going takes the smaller of the
+      // two, so an authorization can narrow a run but never widen it. Consumed
+      // rounds and elapsed time are never reset: only the caps change.
+      // A withdrawn decision may only ever narrow: it is not a permission, so
+      // its numbers never raise a cap the run already records.
+      const fresh = !humanEntry && (mode === 'start' || state.run_status === 'PAUSED');
+      const maxRounds = fresh ? record.budget.max_rounds : Math.min(state.max_rounds, record.budget.max_rounds);
+      const maxWall = fresh ? record.budget.max_wall_seconds : Math.min(state.max_wall_seconds ?? record.budget.max_wall_seconds, record.budget.max_wall_seconds);
+      if (maxRounds !== state.max_rounds || maxWall !== state.max_wall_seconds) {
+        state = { ...state, max_rounds: maxRounds, max_wall_seconds: maxWall, updated_at: now() };
+        await atomicJson(path.join(loop, 'state.json'), state);
+      }
+    }
+    // An automated caller passes require_authorization: it may only launch under
+    // a decision that is READY and unexpired at this exact moment.
+    if (args.require_authorization && !authorizationRef) {
+      throw new ControlError('AUTHORIZATION_REVOKED', `no READY authorization exists for ${state.work_item_id}; an automated run may not continue`, { item_id: state.work_item_id, authorization_state: record?.state ?? null });
+    }
+    job = { schema_version: 1, job_id: jobId, request_id: args.request_id, operation: mode, status: 'QUEUED', desired_status: 'RUNNING', max_nodes: args.max_nodes, nodes_completed: 0, created_at: now(), started_at: null, finished_at: null, pid: null, exit_code: null, last_error: null, lock_id: jobLock.lock_id, work_item_id: state.work_item_id, phase_at_launch: state.phase, state_at_launch_digest: jsonDigest(state), activation_digest: scope.activation_digest, host_config_digest: scope.host_config_digest, bound_config: config };
     await createRuntimeControl(root, job);
-    await atomicJson(path.join(control, 'jobs', `${jobId}.json`), job); await atomicJson(path.join(control, 'current-job.json'), { schema_version: 1, job_id: jobId });
+    await atomicJson(path.join(control, 'jobs', `${jobId}.json`), job); await atomicJson(path.join(control, 'current-job.json'), { schema_version: 1, job_id: jobId, ...(authorizationRef ? { authorization_ref: authorizationRef } : {}), ...(humanEntry ? { human_entry: humanEntry } : {}) });
     requestIndex.requests[args.request_id] = jobId; await atomicJson(requestIndexFile, requestIndex);
     await atomicJson(path.join(control, 'intent.json'), { schema_version: 1, job_id: jobId, request_id: args.request_id, desired_status: 'RUNNING', requested_at: now() });
     const logDir = path.join(control, 'jobs', `${jobId}.logs`); await fs.mkdir(logDir, { recursive: true });
@@ -427,6 +518,9 @@ export async function completeHandover(root, args) {
   let state;
   try { state = await readJson(path.join(loop, 'state.json'), 'state'); const passedHandover = state.phase === 'HANDOVER' && state.run_status === 'WAITING_FOR_HUMAN' && state.gates?.HANDOVER?.status === 'PASSED'; const cancelled = state.run_status === 'CANCELLED'; if (!passedHandover && !cancelled) throw new ControlError('HANDOVER_NOT_READY', 'HANDOVER must be passed and waiting, or the run must be CANCELLED'); await atomicJson(path.join(control, 'handovers', `${state.work_item_id}.json`), { schema_version: 1, work_item_id: state.work_item_id, kind: cancelled ? 'cancellation' : 'completed-work', note: args.note, acknowledged_at: now(), external_action_authorized: false }); state.run_status = 'COMPLETED'; state.last_result = cancelled ? 'Cancellation acknowledged; no delivery action performed.' : 'Handover acknowledged locally; no delivery action performed.'; state.next_action = 'Create the next work item or separately authorize a delivery action.'; state.updated_at = now(); await atomicJson(path.join(loop, 'state.json'), state); }
   finally { await release(); }
+  // The same advisory note the orchestrator writes when it reaches HANDOVER, so
+  // a handover acknowledged through the control layer leaves the same memory.
+  await writeNextSteps(root).catch(() => null);
   return { ok: true, work_item_id: state.work_item_id, status: 'COMPLETED', external_action_performed: false };
 }
 
@@ -439,13 +533,30 @@ export async function status(root, args = {}) {
   }
   let blockers = [];
   if (await exists(path.join(loop, 'blockers.md'))) blockers = (await fs.readFile(path.join(loop, 'blockers.md'), 'utf8')).split('\n').filter((line) => line.includes('- [ ]')).map((line, index) => ({ blocker_index: index + 1, blocker_id: blockerId(line), text: line.replace(/^.*?:\s*/, '') }));
+  const authorization = state ? await readAuthorization(loop, state.work_item_id).catch(() => null) : null;
+  const backlog = await backlogSummary(loop).catch(() => ({ ready: 0, paused: 0, items: [] }));
+  const inbox = await inboxCount(loop).catch(() => 0);
   let activation = state ? await verifyActivationBinding(root).catch((error) => ({ managed: true, valid: false, error: error.message })) : null;
   if (!state && await exists(path.join(loop, 'candidate', 'setup.plan.json'))) {
     const plan = await readJson(path.join(loop, 'candidate', 'setup.plan.json')); const receiptFile = path.join(control, 'approvals', `${plan.setup_digest}.json`); let approvalTrusted = false; let untrustedReceipt = false;
     if (await exists(receiptFile)) { try { await verifyApproval(root, await readJson(receiptFile, 'approval receipt')); approvalTrusted = true; } catch { untrustedReceipt = true; } }
     activation = { managed: true, valid: null, setup_digest: plan.setup_digest, status: job?.operation === 'activate' ? job.status : (approvalTrusted ? 'APPROVED' : 'PENDING_APPROVAL'), approval_trusted: approvalTrusted, untrusted_receipt: untrustedReceipt };
   }
-  return { ok: true, initialized: Boolean(state), state, job, open_blockers: blockers, activation };
+  // A policy file nobody can read is named here rather than replaced by the
+  // permissive default: until a person repairs it the project is tty-only.
+  const policy = await confirmationPolicy(root).catch((error) => ({ human_confirmation: 'tty-only', source: 'invalid-policy', error: { code: 'INVALID_POLICY', message: error.message } }));
+  return {
+    ok: true, initialized: Boolean(state), state, job, open_blockers: blockers, activation, authorization, backlog, inbox,
+    hold: await holdSummary(root).catch(() => null),
+    policy: { mode: policy.human_confirmation, source: policy.source, error: policy.error ?? null },
+    human_confirmation: {
+      mode: policy.human_confirmation,
+      source: policy.source,
+      error: policy.error ?? null,
+      assurance: 'local-user-action',
+      means: 'A human decision is a word typed by a person with access to this machine — at an interactive terminal, or on the local confirmation page. It records who had access to the machine, not who the person was.',
+    },
+  };
 }
 
 export async function workerRun(root, jobId) {
@@ -472,14 +583,38 @@ export async function workerRun(root, jobId) {
         const state = await readJson(path.join(loop, 'state.json')); const boundary = await childAtBoundary(root, control, job, runtimeToken, [state.run_status === 'PAUSED' ? 'start' : 'resume', '--root', root]);
         if (boundary.stop) stopped = await applyPendingStop(root, job, runtimeToken, persist);
       }
+      // A job that runs under a recorded decision re-reads that decision before
+      // every node. Withdrawing it, or letting it expire, stops the job at the
+      // next node boundary; it never stops a node that is already running.
+      const currentJobRecord = await readJson(path.join(control, 'current-job.json'), 'current job').catch(() => null);
+      const authorizationRef = currentJobRecord?.job_id === job.job_id ? currentJobRecord.authorization_ref ?? null : null;
       while (!stopped && job.nodes_completed < job.max_nodes) {
         const state = await readJson(path.join(loop, 'state.json'));
-        if (!(state.run_status === 'RUNNING' || (state.run_status === 'WAITING_FOR_HUMAN' && state.phase === 'HANDOVER' && state.gates.HANDOVER.status === 'PENDING'))) break;
+        if (!(state.run_status === 'RUNNING' || handoverNodePending(state))) break;
+        if (authorizationRef) {
+          const live = await readAuthorization(loop, authorizationRef.item_id).catch(() => null);
+          if (!live || live.state !== 'READY') { job.stop_reason = 'authorization-revoked'; await persist(); break; }
+          if (authorizationExpired(live)) { job.stop_reason = 'authorization-expired'; await persist(); break; }
+        }
         const args = ['run', '--root', root, '--host', config.host, '--provider', config.provider_path, '--review-host', config.review_host, '--review-provider', config.review_provider_path];
         const boundary = await childAtBoundary(root, control, job, runtimeToken, args);
         if (boundary.result) { job.nodes_completed += 1; job.last_exit_code = boundary.result.exit_code; await persist(); }
         if (boundary.stop) { stopped = await applyPendingStop(root, job, runtimeToken, persist); if (stopped) break; }
-        const after = await readJson(path.join(loop, 'state.json')); if (after.run_status !== 'RUNNING' && !(after.run_status === 'WAITING_FOR_HUMAN' && after.phase === 'HANDOVER' && after.gates.HANDOVER.status === 'PENDING')) break;
+        const after = await readJson(path.join(loop, 'state.json'));
+        // The person said: do not retry a failed gate on your own. A gate that
+        // failed in this node ends the job and leaves the run BLOCKED.
+        if (authorizationRef?.stop_on_first_failure && gateFailed(state, after)) {
+          await blockForAuthorization(root, 'stopped on first failure (authorization)');
+          job.stop_reason = 'stopped-on-first-failure'; await persist(); break;
+        }
+        if (after.run_status !== 'RUNNING' && !handoverNodePending(after)) break;
+      }
+      // Cross-cycle memory. When the run has come to rest at a passed HANDOVER,
+      // record the advisory next-steps note for the next DEFINE and for scouts.
+      // The note grants nothing, and a failure to write it never fails the job.
+      const settled = await readJson(path.join(loop, 'state.json')).catch(() => null);
+      if (settled?.run_status === 'WAITING_FOR_HUMAN' && settled.phase === 'HANDOVER' && settled.gates?.HANDOVER?.status === 'PASSED') {
+        await writeNextSteps(root).catch(() => null);
       }
       if (!['PAUSED', 'CANCELLED'].includes(job.status)) {
         const release = await acquireRuntimeGate(root, job);
@@ -508,6 +643,31 @@ export async function workerRun(root, jobId) {
     if (runtime) { runtime.worker_finished = true; runtime.heartbeat_at = now(); await writeRuntimeControl(root, job, runtime); }
   } finally { await finalRelease(); }
   await fs.rm(path.join(control, 'intent.json'), { force: true }); await releaseJobLock(control, job.lock_id); await fs.rm(await runtimeControlFile(root, job.job_id), { force: true });
+}
+
+export function failedGates(state) { return Object.values(state?.gates ?? {}).filter((gate) => gate?.status === 'FAILED').length; }
+export function gateFailed(before, after) {
+  return Number(after?.gate_failures_here ?? 0) > Number(before?.gate_failures_here ?? 0) || failedGates(after) > failedGates(before);
+}
+
+// stop_on_first_failure is a human instruction, so its result is a run a person
+// has to look at: BLOCKED with one open blocker line naming the reason.
+async function blockForAuthorization(root, reason) {
+  const loop = path.join(root, '.loop');
+  const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: 'authorization-stop' });
+  try {
+    const state = await readJson(path.join(loop, 'state.json'), 'state');
+    if (['COMPLETED', 'CANCELLED'].includes(state.run_status)) return;
+    const blockers = path.join(loop, 'blockers.md');
+    const line = `- [ ] ${state.phase} ${state.work_item_id}: ${reason}`;
+    const text = await fs.readFile(blockers, 'utf8').catch(() => '# Blockers\n\n');
+    if (!text.split('\n').includes(line)) await atomicText(blockers, `${text}${text.endsWith('\n') ? '' : '\n'}${line}\n`, 0o644);
+    state.run_status = 'BLOCKED';
+    state.last_result = reason;
+    state.next_action = 'Read the evidence, decide what should happen, then resume or deauthorize the item.';
+    state.updated_at = now();
+    await atomicJson(path.join(loop, 'state.json'), state);
+  } finally { await release(); }
 }
 
 async function verifyBoundExecution(root, job) {
@@ -549,7 +709,7 @@ async function applyPendingStop(root, job, runtimeToken, persist) {
 
 async function child(command, args, cwd, jobId, lockId) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { cwd, env: { ...process.env, PATH: effectivePath(), LOOP_JOB_ID: jobId, LOOP_JOB_LOCK_ID: lockId }, stdio: ['ignore', 'pipe', 'pipe'] }); let stdout = ''; let stderr = '';
+    const proc = spawn(command, args, { cwd, env: managedEnvironment({ LOOP_JOB_ID: jobId, LOOP_JOB_LOCK_ID: lockId }), stdio: ['ignore', 'pipe', 'pipe'] }); let stdout = ''; let stderr = '';
     proc.stdout.on('data', (chunk) => { if (stdout.length < 131072) stdout += chunk; }); proc.stderr.on('data', (chunk) => { if (stderr.length < 131072) stderr += chunk; }); proc.on('error', reject);
     proc.on('close', (code, signal) => { if (code === null || code > 1) { const error = new ControlError('ORCHESTRATOR_FAILED', stderr.trim().slice(0, 4096) || `orchestrator terminated ${signal || `with exit ${code}`}`); error.exit_code = code ?? 1; reject(error); } else resolve({ exit_code: code, stdout, stderr }); });
   });

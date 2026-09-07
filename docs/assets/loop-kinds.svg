@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560" role="img" aria-labelledby="lk-title lk-desc">
+  <title id="lk-title">Four kinds of Build Loop around one six-phase core</title>
+  <desc id="lk-desc">The six phases DEFINE, DESIGN, EXECUTE, REVIEW, VALIDATE and HANDOVER sit in the middle. Four loops surround them: the backlog loop feeds DEFINE when a person accepts an item, the goal loop reads HANDOVER and a person checks and accepts, the cadence loop calls tick to advance one node, and the scout loop writes proposals a person promotes into the backlog. Accepting, authorizing and promoting are always human decisions: each is completed either by the word typed at an interactive terminal or by a person pressing the button on a local confirmation page, never by a tool call on its own.</desc>
+  <defs>
+    <marker id="lk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a5b6d"/>
+    </marker>
+    <style>
+      .t { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #17293c; }
+      .h1 { font-size: 21px; font-weight: 700; }
+      .sub { font-size: 12px; fill: #5b6e81; }
+      .ct { font-size: 15px; font-weight: 700; }
+      .cx { font-size: 11.5px; fill: #46586a; }
+      .op { font-size: 11.5px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .card { fill: #ffffff; stroke: #d3dde6; stroke-width: 1.4; }
+      .pill { fill: #eaf1f7; stroke: #b9cadb; stroke-width: 1.2; }
+      .pt { font-size: 11px; font-weight: 700; text-anchor: middle; fill: #1d3346; }
+      .flow { fill: none; stroke: #4a5b6d; stroke-width: 1.8; marker-end: url(#lk-arrow); }
+      .tag { fill: #ffffff; stroke: #b9cadb; stroke-width: 1.2; }
+      .tagt { font-size: 10.5px; font-weight: 600; text-anchor: middle; fill: #33475b; }
+      .mid { text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="900" height="560" fill="#f4f7fa"/>
+
+  <g class="t">
+    <text class="h1 mid" x="450" y="34">Four kinds of loop, one engine</text>
+    <text class="sub mid" x="450" y="56">Goal, Backlog, Cadence and Scout all run the same six phases and the same gates.</text>
+  </g>
+
+  <!-- Backlog card (top left) -->
+  <g class="t">
+    <rect class="card" x="24" y="86" width="300" height="110" rx="12"/>
+    <rect x="24" y="86" width="6" height="110" rx="3" fill="#2f7a56"/>
+    <text class="ct" x="46" y="112">Backlog loop</text>
+    <text class="cx" x="46" y="134">A queue of items you wrote down in advance.</text>
+    <text class="cx" x="46" y="150">Accepting one archives it and promotes the</text>
+    <text class="cx" x="46" y="166">next one into DEFINE, still paused.</text>
+    <text class="op" x="46" y="187" fill="#2f7a56">backlog_add · authorize · accept</text>
+  </g>
+
+  <!-- Goal card (top right) -->
+  <g class="t">
+    <rect class="card" x="576" y="86" width="300" height="110" rx="12"/>
+    <rect x="576" y="86" width="6" height="110" rx="3" fill="#1f5f99"/>
+    <text class="ct" x="598" y="112">Goal loop</text>
+    <text class="cx" x="598" y="134">One work item, run until HANDOVER.</text>
+    <text class="cx" x="598" y="150">Then you read the evidence yourself and</text>
+    <text class="cx" x="598" y="166">accept it, or send it back for rework.</text>
+    <text class="op" x="598" y="187" fill="#1f5f99">check · accept</text>
+  </g>
+
+  <!-- Human at the gates -->
+  <g class="t">
+    <circle cx="450" cy="104" r="11" fill="#33475b"/>
+    <path d="M 429 143 a 21 21 0 0 1 42 0 z" fill="#33475b"/>
+    <text class="mid" x="450" y="168" font-size="13" font-weight="700">You are the gate</text>
+    <text class="cx mid" x="450" y="186">accept · authorize · promote</text>
+    <text class="cx mid" x="450" y="204">typed at a terminal, or confirmed on a local page</text>
+  </g>
+
+  <!-- Core band -->
+  <g class="t">
+    <rect class="card" x="150" y="228" width="600" height="112" rx="14"/>
+    <text class="mid" x="450" y="250" font-size="12.5" font-weight="700">The core: the same six phases, every time</text>
+    <rect class="pill" x="154" y="262" width="92" height="42" rx="9"/><text class="pt" x="200" y="288">DEFINE</text>
+    <rect class="pill" x="254" y="262" width="92" height="42" rx="9"/><text class="pt" x="300" y="288">DESIGN</text>
+    <rect class="pill" x="354" y="262" width="92" height="42" rx="9"/><text class="pt" x="400" y="288">EXECUTE</text>
+    <rect class="pill" x="454" y="262" width="92" height="42" rx="9"/><text class="pt" x="500" y="288">REVIEW</text>
+    <rect class="pill" x="554" y="262" width="92" height="42" rx="9"/><text class="pt" x="600" y="288">VALIDATE</text>
+    <rect class="pill" x="654" y="262" width="92" height="42" rx="9"/><text class="pt" x="700" y="288">HANDOVER</text>
+    <text class="cx mid" x="450" y="328">Independent review is mandatory in every kind of loop.</text>
+  </g>
+
+  <!-- Scout card (bottom left) -->
+  <g class="t">
+    <rect class="card" x="24" y="404" width="300" height="110" rx="12"/>
+    <rect x="24" y="404" width="6" height="110" rx="3" fill="#6c4bb6"/>
+    <text class="ct" x="46" y="430">Scout loop</text>
+    <text class="cx" x="46" y="452">Read-only discovery in a disposable copy.</text>
+    <text class="cx" x="46" y="468">It writes inert proposals into the inbox;</text>
+    <text class="cx" x="46" y="484">you promote the ones worth doing.</text>
+    <text class="op" x="46" y="505" fill="#6c4bb6">scout · inbox_list · promote · discard</text>
+  </g>
+
+  <!-- Cadence card (bottom right) -->
+  <g class="t">
+    <rect class="card" x="576" y="404" width="300" height="110" rx="12"/>
+    <rect x="576" y="404" width="6" height="110" rx="3" fill="#8a5a17"/>
+    <text class="ct" x="598" y="430">Cadence / schedule loop</text>
+    <text class="cx" x="598" y="452">A timer calls one operation. It advances</text>
+    <text class="cx" x="598" y="468">one node, or starts an item you already</text>
+    <text class="cx" x="598" y="484">authorized, inside its budget and expiry.</text>
+    <text class="op" x="598" y="505" fill="#8a5a17">tick</text>
+  </g>
+
+  <!-- Never automatic -->
+  <g class="t">
+    <text class="mid" x="450" y="430" font-size="12.5" font-weight="700" fill="#8a2222">Never automatic</text>
+    <text class="cx mid" x="450" y="450">accept · authorize · promote</text>
+    <text class="cx mid" x="450" y="466">scope changes · protected paths</text>
+    <text class="cx mid" x="450" y="482">merge, deploy, release</text>
+    <text class="cx mid" x="450" y="504" fill="#8a2222">handover_ready only means: there is</text>
+    <text class="cx mid" x="450" y="518" fill="#8a2222">something for you to look at.</text>
+  </g>
+
+  <!-- Flows -->
+  <g class="t">
+    <path class="flow" d="M 200 196 L 200 258"/>
+    <rect class="tag" x="168" y="203" width="64" height="19" rx="9"/><text class="tagt" x="200" y="216">accept</text>
+
+    <path class="flow" d="M 700 258 L 700 200"/>
+    <rect class="tag" x="655" y="203" width="90" height="19" rx="9"/><text class="tagt" x="700" y="216">check · accept</text>
+
+    <path class="flow" d="M 646 404 C 606 384 556 376 512 348"/>
+    <rect class="tag" x="560" y="366" width="48" height="19" rx="9"/><text class="tagt" x="584" y="379">tick</text>
+
+    <path class="flow" d="M 86 404 L 86 200"/>
+    <rect class="tag" x="52" y="293" width="68" height="19" rx="9"/><text class="tagt" x="86" y="306">promote</text>
+  </g>
+</svg>

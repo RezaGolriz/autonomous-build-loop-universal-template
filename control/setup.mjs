@@ -203,7 +203,7 @@ function matchOutput(output, expectation) {
   throw new ControlError('INVALID_OUTPUT_MATCH', 'negative output matching supports equals or includes');
 }
 
-export async function runBounded(argv, cwd, seconds, envNames = ['PATH'], isolatedRoot = null) {
+export async function runBounded(argv, cwd, seconds, envNames = ['PATH'], isolatedRoot = null, extraEnv = null) {
   return new Promise((resolve, reject) => {
     const env = Object.fromEntries(envNames.filter((name) => Object.hasOwn(process.env, name)).map((name) => [name, process.env[name]]));
     if (envNames.includes('PATH')) env.PATH = effectivePath();
@@ -211,6 +211,9 @@ export async function runBounded(argv, cwd, seconds, envNames = ['PATH'], isolat
       env.HOME = path.join(isolatedRoot, 'home');
       env.TMPDIR = path.join(isolatedRoot, 'tmp');
     }
+    // Loop identifiers a bounded child needs. They never widen the environment
+    // beyond the allowed names plus the isolated home and temporary directory.
+    if (extraEnv) Object.assign(env, extraEnv);
     let stdout = '', stderr = '', timedOut = false, settled = false, timer, killTimer;
     const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const finish = (code, signal, error) => {
@@ -251,6 +254,19 @@ async function verifyCurrentPlan(root, plan) {
   return { digest, source, distribution, configHashes, adapter, state, workflow, work, workFile };
 }
 
+// The containment every disposable run shares: project inputs are copied
+// without the repository history and without the loop's own control directory,
+// symlinks may not point out of the copy, and the run gets its own home and
+// temporary directory inside the copy. Activation probes and the scout both
+// use it; neither ever touches the real project.
+export async function copyDisposableProject(root, temp) {
+  await fs.cp(root, temp, { recursive: true, verbatimSymlinks: true, filter: async (source) => { const rel = path.relative(root, source).replaceAll(path.sep, '/'); if (rel === '.git' || rel.startsWith('.git/') || rel === '.loop') return false; if ((await fs.lstat(source)).isSymbolicLink()) await validateCopiedSymlink(root, source); return true; } });
+  const isolatedRoot = path.join(temp, '.loop-probe-runtime');
+  await fs.mkdir(path.join(isolatedRoot, 'home'), { recursive: true });
+  await fs.mkdir(path.join(isolatedRoot, 'tmp'), { recursive: true });
+  return isolatedRoot;
+}
+
 async function assertProbeBoundary(copyRoot, command) {
   const cwd = await fs.realpath(path.join(copyRoot, command.cwd)).catch(() => null);
   if (!cwd || !(cwd === copyRoot || cwd.startsWith(`${copyRoot}${path.sep}`))) throw new ControlError('UNSAFE_PROBE_CWD', `probe cwd escapes disposable copy: ${command.cwd}`);
@@ -280,8 +296,7 @@ async function activateLocked(root) {
   const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'build-loop-activation-')));
   const evidence = { schema_version: 1, setup_digest: plan.setup_digest, approval_id: receipt.approval_id, started_at: now(), disposable_root: path.basename(temp), containment: { disposable_copy: true, clean_environment: true, isolated_home_and_tmp: true, network_isolation: false, os_sandbox: false }, positive: [], negative: null, status: 'FAILED' };
   try {
-    await fs.cp(root, temp, { recursive: true, verbatimSymlinks: true, filter: async (source) => { const rel = path.relative(root, source).replaceAll(path.sep, '/'); if (rel === '.git' || rel.startsWith('.git/') || rel === '.loop') return false; if ((await fs.lstat(source)).isSymbolicLink()) await validateCopiedSymlink(root, source); return true; } });
-    const isolatedRoot = path.join(temp, '.loop-probe-runtime'); await fs.mkdir(path.join(isolatedRoot, 'home'), { recursive: true }); await fs.mkdir(path.join(isolatedRoot, 'tmp'), { recursive: true });
+    const isolatedRoot = await copyDisposableProject(root, temp);
     for (const command of current.adapter.commands) {
       const cwd = await assertProbeBoundary(temp, command); const result = await runBounded(command.argv, cwd, command.timeout_seconds, current.adapter.environment.allow_names, isolatedRoot);
       evidence.positive.push({ id: command.id, phase: command.phase, argv: command.argv, cwd: command.cwd, exit_code: result.exit_code, timed_out: result.timed_out, stdout_sha256: sha256(result.stdout), stderr_sha256: sha256(result.stderr), passed: result.exit_code === 0 });

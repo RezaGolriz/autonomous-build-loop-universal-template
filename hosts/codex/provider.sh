@@ -12,9 +12,13 @@ brief=$tmp/brief.json
 cat >"$brief"
 phase=${LOOP_PHASE:-$(jq -er '.phase' "$brief")}
 base=$(jq -er '.prompt' "$brief")
-[[ $phase =~ ^(DEFINE|DESIGN|EXECUTE|REVIEW|VALIDATE|HANDOVER)$ ]] || { echo "invalid phase: $phase" >&2; exit 1; }
+[[ $phase =~ ^(DEFINE|DESIGN|EXECUTE|REVIEW|VALIDATE|HANDOVER|SCOUT)$ ]] || { echo "invalid phase: $phase" >&2; exit 1; }
 
-if [[ $phase == REVIEW || $phase == VALIDATE ]]; then
+if [[ $phase == SCOUT ]]; then
+  # Scouting only reads. It proposes work; it never performs any.
+  shape='{"schema_version":1,"status":"OK"|"BLOCKED","proposals":[{"title":"<text>","outcome":"<text>","constraints":["<text>"],"evidence":["<text>"]}]}'
+  mode=(--sandbox read-only -c approval_policy=never)
+elif [[ $phase == REVIEW || $phase == VALIDATE ]]; then
   shape='{"schema_version":1,"verdict_id":"<id>","run_id":"<brief run_id>","work_item_id":"<brief work_item_id>","phase":"REVIEW","gate_id":"REVIEW","nonce":"<brief nonce>","result":"PASS"|"FAIL","reviewer":"<name>","independent":true,"revision":"<brief revision>","captured_at":"<date-time>","evidence_refs":["<brief refs>"],"findings":[{"severity":"BLOCKING"|"HIGH"|"MEDIUM"|"LOW","category":"requirement"|"design"|"artifact"|"safety","evidence":"<text>","disposition":"OPEN"|"DISMISSED"}]}'
   mode=(--sandbox read-only -c approval_policy=never)
   if [[ $phase == VALIDATE ]]; then
@@ -47,7 +51,11 @@ set -e
 if [ "$rc" -ne 0 ] || [ ! -s "$tmp/last.txt" ]; then echo "codex CLI failed (exit $rc) or produced no final message" >&2; exit 1; fi
 
 provider_extract_json "$tmp/last.txt" >"$tmp/result.json" || { echo "no JSON result in agent reply; reply follows" >&2; cat "$tmp/last.txt" >&2; exit 1; }
-if [[ $phase == REVIEW ]]; then
+if [[ $phase == SCOUT ]]; then
+  jq -e 'type=="object" and .schema_version==1 and (.status=="OK" or .status=="BLOCKED") and (.proposals|type)=="array" and
+    (.proposals|length)<=5 and all(.proposals[]; (.title|type)=="string" and (.outcome|type)=="string")' "$tmp/result.json" >/dev/null \
+    || { echo "scout result does not match the provider contract; result follows" >&2; cat "$tmp/result.json" >&2; exit 1; }
+elif [[ $phase == REVIEW ]]; then
   jq -e --slurpfile b "$brief" 'type=="object" and .schema_version==1 and .phase=="REVIEW" and .gate_id=="REVIEW" and .independent==true and
     .run_id==$b[0].run_id and .work_item_id==$b[0].work_item_id and .nonce==$b[0].nonce and .revision==$b[0].revision and .evidence_refs==$b[0].evidence_refs and
     has("verdict_id") and has("result") and has("reviewer") and has("captured_at") and has("findings")' "$tmp/result.json" >/dev/null \

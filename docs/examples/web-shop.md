@@ -244,3 +244,22 @@ change.
   that the build or the tests write to (`dist/`, `.astro/`, `test-results/`,
   `playwright-report/`) must be in the allowed paths of every slice, or the
   step fails although the agent did nothing wrong.
+
+### Running it as a backlog, on a cadence, or with a scout
+
+This recipe is written as a [goal loop](loops/goal.md): one product page,
+carried to handover, then read and accepted by you. The other three kinds fit a
+shop just as well.
+
+- **Backlog.** A shop grows one page at a time — product page, cart badge,
+  search, checkout copy. Write them down with `backlog_add` in the order you
+  want them; accepting one promotes the next.
+  See [the backlog walkthrough](loops/backlog.md).
+- **Cadence.** Browser checks are slow. Authorize one item, then let `tick`
+  advance a node every half hour while you do something else.
+  See [the cadence walkthrough](loops/cadence.md).
+- **Scout.** A scout on a shop reliably finds pages with no browser coverage at
+  all, and price or stock strings duplicated between the template and the test
+  fixture. See [the scout walkthrough](loops/scout.md).
+
+Publishing the site is still a separate human action in every one of them.

@@ -279,3 +279,22 @@ keep them in a header that is in `.gitignore` and outside every allowed path.
 - The referee compares every file before and after a step, and the build
   writes to `.pio/`. That folder must be in the allowed paths of every slice,
   and it is `.gitignore`d, so the reviewer's diff never contains it.
+
+### Running it as a backlog, on a cadence, or with a scout
+
+The recipe above is a [goal loop](loops/goal.md). Firmware work benefits from
+the other kinds because the build is slow and the feedback is coarse.
+
+- **Backlog.** Sensor filter, then the calibration table, then the fault
+  handling. Write them down with `backlog_add`; accepting one promotes the next.
+  See [the backlog walkthrough](loops/backlog.md).
+- **Cadence.** A firmware build takes minutes, so a timer suits it better than
+  sitting and waiting. [The cadence walkthrough](loops/cadence.md) uses this
+  recipe, including what the PlatformIO toolchain needs on a `cron` `PATH`.
+- **Scout.** On an embedded project a scout mostly finds **logic that only the
+  hardware ever exercises**: code in `src/` that no host test in `test/` covers,
+  so the loop can prove "it compiles" but not "it works". Those proposals are
+  usually worth promoting. See [the scout walkthrough](loops/scout.md).
+
+Flashing a device is never part of any loop. It stays a human action after
+handover, in all four kinds.

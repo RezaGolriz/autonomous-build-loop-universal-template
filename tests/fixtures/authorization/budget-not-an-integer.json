@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "item_id": "budget-not-an-integer",
+  "state": "READY",
+  "scope": {
+    "allowed_paths": [
+      "src/**"
+    ]
+  },
+  "budget": {
+    "max_rounds": 4.5,
+    "max_wall_seconds": 600
+  },
+  "expires_at": "@+3600",
+  "stop_on_first_failure": true,
+  "authorized_by": "interactive-tty",
+  "authorized_at": "2026-01-01T00:00:00Z"
+}

@@ -13,6 +13,7 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 jq -n '{phase:"EXECUTE",prompt:"implement bounded change"}' > "$tmp/execute.json"
 jq -n '{phase:"VALIDATE",prompt:"inspect validation state"}' > "$tmp/validate.json"
+jq -n '{phase:"SCOUT",read_only:true,profile:"docs",prompt:"scout the project for work"}' > "$tmp/scout.json"
 jq -n '{phase:"REVIEW",prompt:"review exact diff",run_id:"run-1",work_item_id:"TEST-1",nonce:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",revision:"rev-1",evidence_refs:["evidence-1"]}' > "$tmp/review.json"
 
 printf '%s\n' '#!/usr/bin/env bash' \
@@ -20,6 +21,8 @@ printf '%s\n' '#!/usr/bin/env bash' \
   'printf "%s\n" "$@" > "$FAKE_ARGS"' \
   'if [ "$LOOP_PHASE" = REVIEW ]; then' \
   '  jq -nc '\''{is_error:false,structured_output:{schema_version:1,verdict_id:"verdict-1",run_id:"run-1",work_item_id:"TEST-1",phase:"REVIEW",gate_id:"REVIEW",nonce:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",result:"PASS",reviewer:"fake-claude",independent:true,revision:"rev-1",captured_at:"2026-09-06T00:00:00Z",evidence_refs:["evidence-1"],findings:[]}}'\''' \
+  'elif [ "$LOOP_PHASE" = SCOUT ]; then' \
+  '  jq -nc '\''{is_error:false,structured_output:{schema_version:1,status:"OK",proposals:[{title:"fake finding",outcome:"a bounded improvement",constraints:["change nothing else"],evidence:["docs/guide.md"]}]}}'\''' \
   'else jq -nc '\''{is_error:false,structured_output:{schema_version:1,status:"DONE",defect_class:null,blocker:null,notes:"fake"}}'\''; fi' > "$tmp/fake-claude"
 chmod +x "$tmp/fake-claude"
 
@@ -43,6 +46,13 @@ jq -e '.status=="DONE"' "$tmp/out.json" >/dev/null || bad 'Claude validate outpu
 grep -Fx -- '--restricted' "$tmp/claude-validate.args" >/dev/null || bad 'Claude validate is not read-only'
 ok 'Claude validation agent is read-only while the engine owns commands'
 
+FAKE_ARGS="$tmp/claude-scout.args" CLAUDE_BIN="$tmp/fake-claude" LOOP_PHASE=SCOUT "$claude_provider" < "$tmp/scout.json" > "$tmp/out.json"
+jq -e '.status=="OK" and (.proposals|length)==1 and .proposals[0].title=="fake finding"' "$tmp/out.json" >/dev/null || bad 'Claude scout output failed'
+grep -Fx -- '--restricted' "$tmp/claude-scout.args" >/dev/null || bad 'Claude scout is not restricted'
+grep -Fx -- 'Read,Glob,Grep' "$tmp/claude-scout.args" >/dev/null || bad 'Claude scout tools are not read-only'
+grep -Fx -- 'Bash,Edit,Write,NotebookEdit,WebFetch' "$tmp/claude-scout.args" >/dev/null || bad 'Claude scout deny list incomplete'
+ok 'Claude scouting reads with read-only tooling'
+
 printf '%s\n' '#!/usr/bin/env bash' \
   'if [ "${1:-}" = exec ] && [ "${2:-}" = --help ]; then echo "--output-schema"; exit 0; fi' \
   'printf "%s\n" "$@" > "$FAKE_ARGS"' \
@@ -51,6 +61,8 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '[ -n "$schema" ] && jq -e '\''.type=="object" and .additionalProperties==false and ([..|objects|select(has("properties"))|.properties[]|has("type")]|all) and ([..|objects|select(has("uniqueItems") or has("minLength") or has("minItems") or has("pattern"))]|length==0)'\'' "$schema" >/dev/null && printf valid > "$FAKE_SCHEMA"' \
   'if [ "$LOOP_PHASE" = REVIEW ]; then' \
   '  jq -nc '\''{schema_version:1,verdict_id:"verdict-1",run_id:"run-1",work_item_id:"TEST-1",phase:"REVIEW",gate_id:"REVIEW",nonce:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",result:"PASS",reviewer:"fake-codex",independent:true,revision:"rev-1",captured_at:"2026-09-06T00:00:00Z",evidence_refs:["evidence-1"],findings:[]}'\'' > "$out"' \
+  'elif [ "$LOOP_PHASE" = SCOUT ]; then' \
+  '  jq -nc '\''{schema_version:1,status:"OK",proposals:[{title:"fake finding",outcome:"a bounded improvement",constraints:["change nothing else"],evidence:["docs/guide.md"]}]}'\'' > "$out"' \
   'else jq -nc '\''{schema_version:1,status:"DONE",defect_class:null,blocker:null,notes:"fake"}'\'' > "$out"; fi' > "$tmp/fake-codex"
 chmod +x "$tmp/fake-codex"
 
@@ -72,6 +84,11 @@ FAKE_ARGS="$tmp/codex-validate.args" FAKE_SCHEMA="$tmp/codex-validate.schema" CO
 jq -e '.status=="DONE"' "$tmp/out.json" >/dev/null || bad 'Codex validate output failed'
 grep -Fx -- 'read-only' "$tmp/codex-validate.args" >/dev/null || bad 'Codex validate sandbox not read-only'
 ok 'Codex validation agent is read-only'
+
+FAKE_ARGS="$tmp/codex-scout.args" FAKE_SCHEMA="$tmp/codex-scout.schema" CODEX_BIN="$tmp/fake-codex" LOOP_PHASE=SCOUT "$codex_provider" < "$tmp/scout.json" > "$tmp/out.json"
+jq -e '.status=="OK" and (.proposals|length)==1 and .proposals[0].title=="fake finding"' "$tmp/out.json" >/dev/null || bad 'Codex scout output failed'
+grep -Fx -- 'read-only' "$tmp/codex-scout.args" >/dev/null || bad 'Codex scout sandbox not read-only'
+ok 'Codex scouting reads with a read-only sandbox'
 
 printf '%s\n' '#!/usr/bin/env bash' \
   'if [ "${1:-}" = --help ]; then exit 0; fi' \

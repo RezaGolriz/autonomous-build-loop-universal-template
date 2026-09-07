@@ -145,13 +145,68 @@ export async function assertControlPath(root) {
   const control = path.join(loop, 'control');
   const cstat = await fs.lstat(control).catch(() => null);
   if (cstat?.isSymbolicLink() || (cstat && !cstat.isDirectory())) throw new ControlError('UNSAFE_CONTROL_PATH', 'refusing unsafe .loop/control');
-  return { loop, control };
+  // Scheduler state lives beside the runner-owned control directory, never
+  // inside it: a tick, a scout or a pending confirmation writes while a node is
+  // running, and the supervisor treats any change under .loop/control during a
+  // node as provider tampering.
+  const scheduler = path.join(loop, 'scheduler');
+  const sstat = await fs.lstat(scheduler).catch(() => null);
+  if (sstat?.isSymbolicLink() || (sstat && !sstat.isDirectory())) throw new ControlError('UNSAFE_CONTROL_PATH', 'refusing unsafe .loop/scheduler');
+  return { loop, control, scheduler };
+}
+
+// How a human confirmation may be given in this project. The file is written by
+// hand; no operation, and in particular no MCP tool call, ever writes it.
+// "tty-or-local-page" (the default) allows the typed word at an interactive
+// terminal and the local confirmation page; "tty-only" allows the terminal only.
+export const CONFIRMATION_MODES = Object.freeze(['tty-or-local-page', 'tty-only']);
+
+// What one policy record means. A file that does not say what
+// spec/schemas/confirmation-policy.schema.json describes is never read as the
+// permissive default: a misspelled key or a null value must not quietly re-open
+// the confirmation page.
+export function confirmationPolicyProblem(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return '.loop/control/policy.json must be a JSON object';
+  const unknown = Object.keys(record).filter((key) => !['schema_version', 'human_confirmation'].includes(key));
+  if (unknown.length) return `.loop/control/policy.json has unknown field(s): ${unknown.join(', ')}. It must match spec/schemas/confirmation-policy.schema.json`;
+  if (record.schema_version !== 1) return '.loop/control/policy.json must be a version 1 record';
+  if (Object.hasOwn(record, 'human_confirmation') && typeof record.human_confirmation !== 'string') {
+    return `.loop/control/policy.json human_confirmation must be one of ${CONFIRMATION_MODES.join(', ')}; remove the key to use the default`;
+  }
+  const mode = Object.hasOwn(record, 'human_confirmation') ? record.human_confirmation : 'tty-or-local-page';
+  if (!CONFIRMATION_MODES.includes(mode)) return `.loop/control/policy.json human_confirmation must be one of ${CONFIRMATION_MODES.join(', ')}`;
+  return null;
+}
+
+// The policy as it stands, without throwing. A file nobody can read the way the
+// schema describes is reported as an error and, until a person repairs it, the
+// project behaves as the strictest mode there is: only a word typed at an
+// interactive terminal decides anything. The error travels with the record so
+// that check, status and both dashboards can say what is wrong instead of
+// showing a permissive default that is not in force.
+export async function confirmationPolicy(root) {
+  const { control } = await assertControlPath(root);
+  const file = path.join(control, 'policy.json');
+  if (!await exists(file)) return { schema_version: 1, human_confirmation: 'tty-or-local-page', source: 'default', error: null };
+  const record = await readJson(file, 'confirmation policy').catch((error) => ({ __unreadable: error.message }));
+  const message = record.__unreadable ?? confirmationPolicyProblem(record);
+  if (message) return { schema_version: 1, human_confirmation: 'tty-only', source: 'invalid-policy', error: { code: 'INVALID_POLICY', message } };
+  const mode = Object.hasOwn(record, 'human_confirmation') ? record.human_confirmation : 'tty-or-local-page';
+  return { schema_version: 1, human_confirmation: mode, source: 'policy-file', error: null };
+}
+
+// The same reading for callers that would rather not continue at all than
+// continue under a policy nobody can read.
+export async function readConfirmationPolicy(root) {
+  const policy = await confirmationPolicy(root);
+  if (policy.error) throw new ControlError(policy.error.code, policy.error.message);
+  return policy;
 }
 
 export async function ensureRuntimeIgnore(root) {
   const { loop } = await assertControlPath(root);
   await fs.mkdir(loop, { recursive: true });
-  const rules = '# Machine-local build-loop data. Review work items before sharing.\n/host.local.json\n/control/\n/candidate/\n/evidence/\n/*lock*\n/quarantine.json\n/*.snapshot.json\n/dashboard.html\n';
+  const rules = '# Machine-local build-loop data. Review work items before sharing.\n/host.local.json\n/control/\n/scheduler/\n/candidate/\n/evidence/\n/*lock*\n/quarantine.json\n/*.snapshot.json\n/dashboard.html\n';
   try { await fs.writeFile(path.join(loop, '.gitignore'), rules, { flag: 'wx', mode: 0o644 }); }
   catch (error) { if (error.code !== 'EEXIST') throw error; }
 }

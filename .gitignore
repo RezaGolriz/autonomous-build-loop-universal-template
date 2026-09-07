@@ -1,5 +1,6 @@
 .loop/evidence/
 /.loop/
+.loop/scheduler/
 .loop/*.snapshot.json
 *.pyc
 __pycache__/

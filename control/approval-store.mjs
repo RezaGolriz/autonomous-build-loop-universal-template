@@ -51,3 +51,23 @@ export async function verifyHostConfiguration(root, config) {
   if (!timingSafeEqual(expected, Buffer.from(config.host_signature, 'hex'))) throw new ControlError('HOST_UNTRUSTED', 'host configuration changed; configure it again locally');
   return config;
 }
+
+// Human confirmation of one exact decision (accept, authorize, promote). The
+// receipt binds the local host key to the request id and to the digest of the
+// frozen request the person actually saw, so a confirmation can never be
+// replayed against another decision or against a changed one.
+function operationPayload(root, receipt) {
+  return JSON.stringify(['operation-confirmation-v2', root, receipt.operation, receipt.item_id ?? null, receipt.request_digest, receipt.request_id, receipt.channel, receipt.assurance, receipt.confirmed_at, receipt.decision]);
+}
+export async function signOperationConfirmation(root, receipt) {
+  root = await fs.realpath(root);
+  return createHmac('sha256', await hostKey(root, true)).update(operationPayload(root, receipt)).digest('hex');
+}
+export async function verifyOperationConfirmation(root, receipt) {
+  root = await fs.realpath(root);
+  if (!receipt || receipt.decision !== 'APPROVE' || receipt.channel !== 'local-http-user' || receipt.assurance !== 'local-user-action'
+      || !/^[a-f0-9]{64}$/.test(receipt.request_digest || '') || !/^[a-f0-9]{64}$/.test(receipt.host_signature || '')) throw new ControlError('CONFIRMATION_UNTRUSTED', 'this confirmation is not signed by the local host; ask the person to confirm again');
+  const expected = createHmac('sha256', await hostKey(root, false)).update(operationPayload(root, receipt)).digest();
+  if (!timingSafeEqual(expected, Buffer.from(receipt.host_signature, 'hex'))) throw new ControlError('CONFIRMATION_UNTRUSTED', 'confirmation signature does not match this project and host');
+  return receipt;
+}

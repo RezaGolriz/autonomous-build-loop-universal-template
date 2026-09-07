@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/confirmation-policy.schema.json",
+  "title": "Human confirmation policy v1",
+  "description": "Optional file .loop/control/policy.json. It says how the human decisions accept, authorize and promote may be given in this project. It is written by hand; no operation, and in particular no chat tool call, ever writes it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "human_confirmation": {
+      "enum": ["tty-or-local-page", "tty-only"],
+      "default": "tty-or-local-page",
+      "description": "tty-or-local-page: a word typed at an interactive terminal, or a word typed on the local confirmation page. tty-only: the terminal and nothing else; chat tool calls and --input are refused with CONFIRMATION_TTY_ONLY."
+    }
+  }
+}

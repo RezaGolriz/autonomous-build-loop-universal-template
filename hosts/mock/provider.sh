@@ -26,6 +26,24 @@ add_under(){ # heading content
     END { if (f && !ins) print c }' "$wi" > "$wi.mock" && mv "$wi.mock" "$wi"
 }
 
+if [ "$phase" = SCOUT ]; then
+  [ -z "${MOCK_DUMP:-}" ] || cp "$brief" "$MOCK_DUMP"
+  if [ "$action" = block ]; then
+    printf '{"schema_version":1,"status":"BLOCKED","proposals":[],"notes":"mock scout blocked"}\n'
+    exit 0
+  fi
+  jq -nc '{schema_version:1,status:"OK",notes:"mock scout",proposals:[
+    {title:"Cover the greeting helper with a regression test",
+     outcome:"A failing case for the greeting helper is covered by a test, so the behaviour cannot regress unnoticed.",
+     constraints:["Do not change the greeting output itself."],
+     evidence:["tests/test_greet.py","src/greet.py"]},
+    {title:"Resolve the open TODO markers in the source tree",
+     outcome:"Every TODO marker either describes real remaining work in a work item or is removed.",
+     constraints:["Change no behaviour while removing markers."],
+     evidence:["src/greet.py"]}]}'
+  exit 0
+fi
+
 if [ "$phase" = REVIEW ]; then
   [ -z "${MOCK_DUMP:-}" ] || cp "$brief" "$MOCK_DUMP"
   result=PASS; findings='[]'

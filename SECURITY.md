@@ -17,8 +17,14 @@ container, or host sandbox when running code you do not trust.
   an interactive terminal. Agents must never submit that view on the user's
   behalf. A model-supplied boolean is not approval.
 - A local confirmation page does not provide protection from a compromised OS
-  account or an unrestricted agent controlling the same browser. The agent host
-  must enforce the human-interaction boundary.
+  account or an unrestricted agent controlling the same browser. It is served on
+  loopback, so an agent with shell access on the same machine could in principle
+  open the link and type the confirmation word; the recorded assurance is
+  `local-user-action` and nothing stronger. The agent host must enforce the
+  human-interaction boundary. A project that needs a hard guarantee sets
+  `human_confirmation` to `tty-only` in `.loop/control/policy.json`, written by
+  hand; accept, authorize and promote are then refused from every transport
+  except a word typed at an interactive terminal.
 - Probes use a disposable copy, but this alone does not prevent network access
   or writes outside that copy. Review the commands and use host isolation.
 - Independent review requires a fresh restricted context. A second vendor is

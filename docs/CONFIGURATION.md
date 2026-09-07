@@ -66,6 +66,21 @@ doctor.
 
 ## Local approval and host trust
 
+`.loop/control/policy.json` is the one file in the control directory that a
+person writes by hand: `{"schema_version": 1, "human_confirmation":
+"tty-or-local-page"}` (the default) or `"tty-only"`. With `tty-only`, accept,
+authorize and promote are refused from an input file or a chat tool call with
+`CONFIRMATION_TTY_ONLY` plus the complete command to run at a terminal
+(`build-loop <operation> --root '<project>' --input '<the same arguments>'`),
+and only a word typed at an interactive terminal decides. A page request that
+was still pending is discarded rather than settled. The file has to match
+[spec/schemas/confirmation-policy.schema.json](../spec/schemas/confirmation-policy.schema.json)
+exactly: an unknown key, a null value, an unknown mode or a wrong version is
+refused with `INVALID_POLICY` and never treated as the default; while the file is
+broken the project accepts only a word typed at an interactive terminal, and
+`status`, `check` and both dashboards name the error under `policy`. No operation
+ever writes or edits this file.
+
 configure signs `.loop/host.local.json` with a private per-user key. Approval
 receipts are signed with the same key. Both signatures include the canonical
 project root, so hand-editing the host file or copying signed files to a different
@@ -89,8 +104,13 @@ setup.
 
 prepare or configure creates `.loop/.gitignore` only when that file is absent;
 it does not replace an existing ignore policy. The generated default ignores
-machine-local host settings, candidate and control data, evidence, locks,
-quarantine, snapshots, and the dashboard. The active adapter, state, and work
+machine-local host settings, candidate, control and scheduler data, evidence,
+locks, quarantine, snapshots, and the dashboard. Scheduler data —
+`.loop/scheduler/` with the tick lock and log, the scout and inbox logs, and
+pending confirmation requests, receipts and results — is kept apart from
+`.loop/control/` on purpose: the supervisor snapshots every file under
+`.loop/control` around a provider node and treats any change there as tampering,
+so a tick or a confirmation that lands while a node runs must not write into it. The active adapter, state, and work
 items remain project-controlled files and may contain project or request details.
 Review them before sharing or committing them.
 

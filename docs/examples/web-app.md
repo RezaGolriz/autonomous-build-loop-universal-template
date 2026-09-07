@@ -249,3 +249,21 @@ human actions after handover.
   `node_modules/**` never has to be an allowed path.
 - The referee checksums every file except `.git`; a large `node_modules/`
   makes each step a few seconds slower. That is expected.
+
+### Running it as a backlog, on a cadence, or with a scout
+
+The recipe above is a [goal loop](loops/goal.md) around the login form. A
+browser client is a natural fit for the other kinds too.
+
+- **Backlog.** [The backlog walkthrough](loops/backlog.md) uses this recipe: the
+  session timeout, then the form error states, then a page documenting every
+  auth state.
+- **Cadence.** End-to-end runs are slow and occasionally flaky. Authorize one
+  item with `stop_on_first_failure`, then let `tick` advance it; a genuine
+  failure blocks the item instead of burning the round budget on retries.
+  See [the cadence walkthrough](loops/cadence.md).
+- **Scout.** On a web app a scout usually reports screens and states with no
+  end-to-end coverage — error paths, empty states, the logged-out view — plus
+  dependency drift in `package.json`. See [the scout walkthrough](loops/scout.md).
+
+Building and deploying the app remains a separate human action.

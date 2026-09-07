@@ -152,6 +152,75 @@ Start in plain language, for example:
 The agent translates the request into tool inputs and asks for any missing decisions.
 Dashboard selectors can also prepare a request for you to copy into chat.
 
+---
+
+## Which kind of loop do you want?
+
+There are four. All four run the same six phases, the same gates and the same
+mandatory independent review. What changes is where the work comes from and who
+decides when the next piece of it starts.
+
+![Four kinds of loop around one six-phase core: the backlog feeds DEFINE when a person accepts an item, the goal loop ends at HANDOVER where a person checks and accepts, a cadence timer calls tick, and a scout writes proposals a person promotes into the backlog](docs/assets/loop-kinds.svg)
+
+Below, `…` after `--root` stands for the absolute path to your target‑project folder.
+
+| Loop | What it is for | In chat (Claude Desktop / Codex app) | On the command line |
+|---|---|---|---|
+| **Goal loop** | One work item, carried to HANDOVER. Then you read the evidence and decide. | *"Continue this work item in bounded mode for at most 12 nodes, then run a build‑loop check and tell me the run status, the judge verdict and the next action."* — to accept it, the agent's tool call hands you a **local confirmation page**; you open it, read the exact decision it shows, type `ACCEPT` into the field and press the button | `build-loop check --root … --json`, then `build-loop accept --root …` and type `ACCEPT` |
+| **Backlog loop** | Several items in a written order. Accepting one promotes the next. | *"Add these three items to the backlog and start none of them, then list the backlog with the authorization state of each item."* — authorizing and accepting both return a **local confirmation page** that shows the exact decision, including the paths, the budget and the expiry; you type `AUTHORIZE` or `ACCEPT` into its field yourself | `build-loop backlog_add --root … --input '{"title":"…","outcome":"…"}'`, then `build-loop authorize --root …` and `build-loop accept --root …`, typing the word each time |
+| **Cadence / schedule loop** | A timer moves the run along, inside limits you wrote down beforehand. | *"Every 30 minutes, call tick on this project and tell me only when the action is not nothing."* — a timer can never accept, authorize or promote | `build-loop tick --root …`, driven by Claude Code `/loop` or `/schedule`, a Codex Automation, or `cron` |
+| **Scout loop** | Finding work at all: read‑only discovery that fills an inbox you triage. | *"Scout this project and show me what came back. Do not promote anything."* — promoting one returns a **local confirmation page** showing the proposal it is bound to; you type `PROMOTE` into its field | `build-loop scout --root …`, then `build-loop inbox_list --root …` and `build-loop promote --root …` and type `PROMOTE` |
+
+**What is never automatic.** Accepting a result, authorizing an item to start
+later, promoting a scout proposal, and taking a project‑wide hold off are
+decisions only a person makes. Each completes in one of two ways: you type its
+word — `ACCEPT`, `AUTHORIZE`, `PROMOTE` or `RELEASE` — at an interactive
+terminal, or you type the same word into the field
+on a local confirmation page and press the button. Every other route, including a
+chat tool call and a script's input file, completes nothing: it returns a link to
+that page, bound to that one operation, that one item and the exact decision that
+was frozen when the link was made, and the agent has to hand the link to you
+rather than open it. If the run, the proposal or the decision changes in the
+meantime, the confirmation is refused rather than applied to something else.
+
+Both routes are recorded with the assurance `local-user-action`: a person with
+access to this machine did it. Be honest about what that is worth — an agent
+with shell access on the same computer could in principle open the link too. If
+you need a harder guarantee, put `{"schema_version": 1, "human_confirmation":
+"tty-only"}` into `.loop/control/policy.json` by hand. Chat tool calls and input
+files are then refused outright with `CONFIRMATION_TTY_ONLY` and the exact
+command to run — the whole decision travels with it through `--input` — and only
+a word typed at an interactive terminal decides.
+
+Authorizing is a permission to start, never approval of a result.
+Scope changes and anything under protected paths need a person. Merging,
+pushing, deploying, releasing, flashing a device and running a migration are
+always separate human actions after a handover.
+
+**`handover_ready` is not success.** It means only that there is something for
+you to look at. Verified success is a recorded review verdict of `PASS`
+together with a passed VALIDATE gate — `check` reports the verdict separately
+as `judge_verdict` so the two are never confused.
+
+Full explanation: [docs/LOOP-MODES.md](docs/LOOP-MODES.md). Step‑by‑step
+walkthroughs on the example projects, in chat and on the command line:
+[docs/examples/loops/README.md](docs/examples/loops/README.md).
+
+### Status
+
+| Capability | Status |
+|---|---|
+| One work item carried to handover (goal loop) | Implemented |
+| Several work items in an ordered backlog | Implemented — `backlog_add`, `backlog_list`, `backlog_remove` |
+| Letting an item start later, with scope, budget and expiry | Implemented — `authorize`, `deauthorize` |
+| Stopping everything in a project at once | Implemented — `hold`, and `deauthorize`; only `release` takes it off |
+| Accepting a finished run and promoting the next item | Implemented — `accept` |
+| Cadence and scheduled runs | Implemented — `tick`, driven by a client schedule or `cron` |
+| Discovery into a triaged inbox (scout loop) | Implemented — `scout`, `inbox_list`, `promote`, `discard` |
+| A note carried from one cycle to the next | Implemented — advisory only, approves nothing |
+| Merge, push, deploy, release, device flashing, live migration | Not automated, by design — human actions |
+| Native Windows | Not supported; WSL has not been validated |
+
 ## Understand the dashboard
 
 Ask for it from the target-project chat at any time, including before setup:
@@ -279,9 +348,10 @@ The original shell entry point remains fully supported alongside the plugin, inc
 ## More documentation
 
 - [docs/INSTALLATION.md](docs/INSTALLATION.md) — every install path, including raw MCP JSON
-- [docs/LOOP-MODES.md](docs/LOOP-MODES.md) — step and bounded modes, gates
+- [docs/LOOP-MODES.md](docs/LOOP-MODES.md) — the four kinds of loop, run modes, work kinds, what is never automatic
 - [docs/DASHBOARD.md](docs/DASHBOARD.md) — read‑only dashboard and link expiry
 - [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) — the six phases in depth
 - [docs/VALIDATION.md](docs/VALIDATION.md) — probes, disposable copies, completion checks
 - [docs/SHELL-ORCHESTRATOR.md](docs/SHELL-ORCHESTRATOR.md) — shell usage
 - [docs/examples/README.md](docs/examples/README.md) — worked examples
+- [docs/examples/loops/README.md](docs/examples/loops/README.md) — goal, backlog, cadence and scout walkthroughs

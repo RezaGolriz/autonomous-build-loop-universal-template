@@ -21,6 +21,23 @@ variant** with commands and configuration details. Choose one setup route;
 both use the same engine and gates. The documentation remains in English so
 the prompts can be shared directly with either client.
 
+## Loop walkthroughs
+
+The recipes above show how to *shape* a project. The walkthroughs below show how
+to *run* one, in each of the four kinds of loop, again with a chat variant and a
+command-line variant. Each uses one of the recipes.
+
+| Walkthrough | Kind of loop | Recipe it uses |
+|---|---|---|
+| [Goal loop](loops/goal.md) | One item, carried to HANDOVER, then `check` and `accept` | [Web shop](web-shop.md) |
+| [Backlog loop](loops/backlog.md) | A queue: `backlog_add`, `authorize`, `accept` | [Web app](web-app.md) |
+| [Cadence loop](loops/cadence.md) | A timer calls `tick` | [ESP32 firmware](esp32-embedded.md) |
+| [Scout loop](loops/scout.md) | `scout` writes proposals you `promote` | [JSON API](api.md) |
+
+Start at [loops/README.md](loops/README.md), which explains the shared `check`
+output and what is never automatic in any of them. The concepts behind the four
+kinds are in [LOOP-MODES.md](../LOOP-MODES.md).
+
 ## Chat variant: common setup
 
 First install the [Codex plugin or Claude Desktop integration](../../hosts/README.md).
@@ -163,6 +180,18 @@ project-bound MCP tools; the semantics and state are the same.
 | Pause or cancel execution | pause, cancel | loop_pause, loop_cancel |
 | Acknowledge local handover | handover | loop_handover |
 | Prepare a later work item | task | loop_task |
+| Read where the project stands | check | loop_check |
+| Queue and inspect work items | backlog_add, backlog_list, backlog_remove | loop_backlog_add, loop_backlog_list, loop_backlog_remove |
+| Let an item start later, or take that back | authorize, deauthorize | loop_authorize, loop_deauthorize |
+| Stop everything now, or let it continue | hold, release | loop_hold, loop_release |
+| Accept a finished run | accept | loop_accept |
+| Take one cadence step | tick | loop_tick |
+| Look for work and triage it | scout, inbox_list, promote, discard | loop_scout, loop_inbox_list, loop_promote, loop_discard |
+
+`accept`, `authorize` and `promote` are the three human decisions. They complete
+only from the word typed at an interactive terminal, or from a button a person
+presses on a local confirmation page; from an input file or a chat tool call they
+return a `confirmation_url` and write nothing until somebody confirms it.
 
 ## Common setup
 

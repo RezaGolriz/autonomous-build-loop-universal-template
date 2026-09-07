@@ -67,6 +67,59 @@ reuse it only for an exact retry. Pause and cancel take effect at a build-node
 boundary. Activation jobs reject pause and cancel. After cancellation, use
 handover to acknowledge the cancellation before creating the next work item.
 
+Use check for a read-only "where does this stand" answer; its handover_ready
+field means there is something to look at, not success. Keep queued work with
+backlog_add, backlog_list, and backlog_remove. accept, authorize, and promote are
+human decisions and complete in only two ways: the literal word ACCEPT,
+AUTHORIZE, or PROMOTE typed at an interactive terminal, or the same word typed
+into the field on a local confirmation page. Called any other way — an input
+file, a tool call — they complete nothing and return ok with
+pending_confirmation and a confirmation_url. The page shows the fully resolved
+decision frozen when the link was made: defaults, budget, expiry and a
+fingerprint of the run or the proposal. Give that link to the person, say what it
+would do, and wait; never open or submit it yourself. The record then keeps the
+channel local-http-user with the assurance local-user-action, which means a
+person with access to that machine did it and is not proof of who. A decision
+that no longer matches what was frozen is refused as CONFIRMATION_STALE. A
+project may be set to tty-only in .loop/control/policy.json; the operations then
+return CONFIRMATION_TTY_ONLY with the exact command for the person to run at
+their own terminal. Report that command; do not run it and do not work around
+it. deauthorize sets an authorization back to PAUSED and completes
+directly, and it also places a project-wide hold: while .loop/control/hold.json
+exists, start, run, resume, tick, task and scout are refused with
+PROJECT_ON_HOLD for every caller that is not a person at an interactive
+terminal, so a new work item is no way around the withdrawn decision. cancel and
+handover keep working. hold places such a hold deliberately, with a reason, from
+any channel; stopping is always allowed. release takes it off and is human-only:
+it needs the typed word RELEASE, so from a tool call it returns a confirmation
+link like accept and authorize. Never work around a hold; report it and ask the
+person to release it. tick is one cadence step for a timer or a schedule: it reports,
+advances one node, or starts an item that is already authorized as READY within
+its recorded budget and expiry. It never grants approval and never starts a
+paused, expired, or invalid item, and it stops continuing a run whose
+authorization was revoked, expired, or does not validate.
+
+An authorization also bounds paths: every slice path and every changed file has
+to stay inside its scope.allowed_paths. A record that does not validate is
+reported as INVALID rather than treated as absent, and a person has to write it
+again.
+
+scout looks for work: it runs a bundled provider wrapper read-only in a
+disposable copy of the project and writes proposals into the inbox, touching
+neither the backlog nor a run. The provider is named, never pathed: only claude,
+codex or mock, and only the wrapper bundled with this distribution runs. Read the
+proposals with inbox_list, turn one into a backlog item with promote, and drop
+one with discard. A proposal is inert until a person confirms promote.
+
+Acceptance, authorization, scope expansion, protected-path exceptions, and
+external actions are never automatic. No timer, note, or judge verdict is any of
+them, and handover_ready is not success.
+
+Every run that reaches HANDOVER leaves an advisory note in
+`.loop/notes/next-steps.md` that the next DEFINE brief and every scout brief
+carry along; it summarizes the run and suggests priorities, and it never approves
+anything or widens the scope of a node.
+
 Handover reports evidence and the next decision. It does not authorize merge,
 publication, release, deployment, migration, destructive actions, or secrets.
 Worker and reviewer calls may send their bounded inputs to the configured model

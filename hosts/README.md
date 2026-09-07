@@ -134,6 +134,24 @@ JSON result:
 A blocked result uses status BLOCKED and a concrete blocker. Provider stderr is
 captured as a log and is never parsed as the result.
 
+There is one further phase name, SCOUT, which the control layer uses for
+read-only discovery rather than for a loop node. A SCOUT brief carries the phase
+name, the project profile, what to look for, the backlog titles that are already
+known, and the prompt. A scout executes only a bundled wrapper: the one shipped
+for that host, or the one configure generated around it and recorded in the
+signed machine-local host configuration. Anything else is not run; the bundled
+wrapper for that host is used instead, and there is no input field for naming an
+executable. That restriction is what containment rests on, because a program
+started with the user's own privileges can write to any absolute path whatever
+its working directory is. The bundled Claude wrapper allows only Read, Glob and
+Grep with an explicit deny list, and the bundled Codex wrapper uses its read-only
+sandbox. On top of that the provider runs in a disposable copy of the project
+with an isolated home and temporary directory, and it must change nothing. Its
+stdout is one JSON object with schema_version 1, a status of OK or BLOCKED, and
+proposals: at most five entries of title, outcome, constraints and evidence. A
+blocked scout returns no proposals. Proposals are suggestions only; a person
+confirms promoting one into the backlog before anything can act on it.
+
 For REVIEW, stdout must conform to spec/schemas/verdict.schema.json and echo the
 challenge's run ID, work-item ID, nonce, revision, and evidence references.
 Review always starts in a fresh process and does not receive the builder's

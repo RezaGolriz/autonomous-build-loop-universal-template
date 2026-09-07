@@ -50,6 +50,15 @@ provider_write_schema(){
         findings:{type:"array",items:{type:"object",additionalProperties:false,required:["severity","category","evidence","disposition"],properties:{severity:{type:"string",enum:["BLOCKING","HIGH","MEDIUM","LOW"]},category:{type:"string",enum:["requirement","design","artifact","safety"]},evidence:{type:"string"},disposition:{type:"string",enum:["OPEN","DISMISSED"]}}}}
       }
     }' > "$provider_schema"
+  elif [ "$provider_phase" = SCOUT ]; then
+    jq -n '{
+      type:"object", additionalProperties:false, required:["schema_version","status","proposals"],
+      properties:{
+        schema_version:{type:"integer",const:1}, status:{type:"string",enum:["OK","BLOCKED"]}, notes:{type:"string"},
+        proposals:{type:"array",maxItems:5,items:{type:"object",additionalProperties:false,required:["title","outcome","constraints","evidence"],
+          properties:{title:{type:"string"},outcome:{type:"string"},constraints:{type:"array",items:{type:"string"}},evidence:{type:"array",items:{type:"string"}}}}}
+      }
+    }' > "$provider_schema"
   else
     jq -n '{
       type:"object", additionalProperties:false, required:["schema_version","status","defect_class","blocker","notes"],

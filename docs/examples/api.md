@@ -268,3 +268,22 @@ commands ran, with which exit codes, against which Git revision.
   `__pycache__/` and `.pytest_cache/`. The referee compares every file before
   and after a step, so tool output must either not exist or be inside the
   allowed paths.
+
+### Running it as a backlog, on a cadence, or with a scout
+
+The steps above describe a [goal loop](loops/goal.md): one work item, carried to
+handover. An API usually wants more than that.
+
+- **Backlog.** Routes arrive in a queue: create, read, list, then the error
+  codes and the pagination. Add them with `backlog_add` and let `accept`
+  promote the next one. See [the backlog walkthrough](loops/backlog.md).
+- **Cadence.** Contract fuzzing is slow. Authorize one item, then let `tick`
+  move it a node at a time. See [the cadence walkthrough](loops/cadence.md).
+- **Scout.** The `api` profile is exactly where a scout earns its keep: it looks
+  for **drift between the declared contract and the implementation** — a route
+  the OpenAPI description does not mention, a status code it promises that no
+  handler returns, a schema field that quietly changed shape.
+  See [the scout walkthrough](loops/scout.md), which uses this recipe.
+
+Deploying the service, rotating keys and running migrations stay human actions
+in every kind of loop.

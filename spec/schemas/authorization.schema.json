@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/authorization.schema.json",
+  "title": "Work item authorization record v1",
+  "description": "Sidecar next to a work item file. PAUSED means the item is inert and needs a person. READY means a person already said the item may start when its slot comes, within the recorded scope, budget and expiry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "item_id", "state", "authorized_by", "authorized_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "The work item this decision is about. It has to be the item whose sidecar the file is: the record in .loop/work-items/WI-007.authorization.json says WI-007. A record naming another item authorizes that other item and is invalid here."},
+    "state": {"enum": ["PAUSED", "READY"]},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_paths"],
+      "properties": {
+        "allowed_paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1024}
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_rounds", "max_wall_seconds"],
+      "properties": {
+        "max_rounds": {"type": "integer", "minimum": 1, "maximum": 500},
+        "max_wall_seconds": {"type": "integer", "minimum": 60, "maximum": 604800}
+      }
+    },
+    "expires_at": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})$"},
+    "stop_on_first_failure": {"type": "boolean"},
+    "authorized_by": {"enum": ["interactive-tty", "local-http-user", "cli-input", "mcp-user"]},
+    "assurance": {"enum": ["local-user-action"], "description": "How the decision was obtained: a person acting on this machine, either a word typed at an interactive terminal or a word typed on the local confirmation page. It is not proof of who that person was."},
+    "authorized_at": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})$"},
+    "note": {"type": "string", "minLength": 1, "maxLength": 20000}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "READY"}}, "required": ["state"]},
+      "then": {"required": ["scope", "budget", "expires_at", "stop_on_first_failure"]}
+    }
+  ]
+}

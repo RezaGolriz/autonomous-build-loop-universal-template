@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "description": "Authorization records both the Node control layer and the Bash orchestrator have to read the same way. Each case is the sidecar of the work item named by its case name, so a record whose item_id is a different item is a record about that other item. An expires_at or authorized_at of the form @+SECONDS or @-SECONDS is replaced by the test harness with that many seconds from now, so a decision that is meant to be live stays live; an optional fraction (@+3600.250) is appended to the seconds.",
+  "expected_states": "READY means the item counts as authorized right now; PAUSED means it does not, whether because the record is inert, expired, or broken.",
+  "cases": [
+    {
+      "case": "ready-minimal",
+      "expected": "READY",
+      "why": "every required field, an expiry in the future"
+    },
+    {
+      "case": "ready-fractional",
+      "expected": "READY",
+      "why": "a fractional second, an assurance and a note are all allowed"
+    },
+    {
+      "case": "paused-state",
+      "expected": "PAUSED",
+      "why": "a PAUSED record is inert and grants nothing"
+    },
+    {
+      "case": "expired",
+      "expected": "PAUSED",
+      "why": "the expiry has passed"
+    },
+    {
+      "case": "expiry-unparseable",
+      "expected": "PAUSED",
+      "why": "an expiry nobody can read grants nothing"
+    },
+    {
+      "case": "expiry-impossible-date",
+      "expected": "PAUSED",
+      "why": "the 30th of February is not a date, it is a typo"
+    },
+    {
+      "case": "expiry-hour-24",
+      "expected": "PAUSED",
+      "why": "hour 24 is not a time of day"
+    },
+    {
+      "case": "expiry-offset-out-of-range",
+      "expected": "PAUSED",
+      "why": "no time zone is 25 hours from UTC"
+    },
+    {
+      "case": "authorized-at-impossible-date",
+      "expected": "PAUSED",
+      "why": "the moment of the decision has to be a real one"
+    },
+    {
+      "case": "unknown-field",
+      "expected": "PAUSED",
+      "why": "a field the schema does not describe is a record somebody got wrong"
+    },
+    {
+      "case": "assurance-null",
+      "expected": "PAUSED",
+      "why": "assurance is either the one supported value or absent"
+    },
+    {
+      "case": "assurance-unknown",
+      "expected": "PAUSED",
+      "why": "no other assurance is recognised"
+    },
+    {
+      "case": "channel-unknown",
+      "expected": "PAUSED",
+      "why": "a decision has to come from a human channel"
+    },
+    {
+      "case": "budget-below-range",
+      "expected": "PAUSED",
+      "why": "a wall-clock budget below the documented minimum"
+    },
+    {
+      "case": "budget-not-an-integer",
+      "expected": "PAUSED",
+      "why": "half a round is not a round"
+    },
+    {
+      "case": "budget-missing",
+      "expected": "PAUSED",
+      "why": "a READY record without a budget bounds nothing"
+    },
+    {
+      "case": "scope-empty",
+      "expected": "PAUSED",
+      "why": "a READY record without a path scope bounds nothing"
+    },
+    {
+      "case": "scope-escapes-project",
+      "expected": "PAUSED",
+      "why": "a scope may not reach outside the project"
+    },
+    {
+      "case": "scope-absolute-path",
+      "expected": "PAUSED",
+      "why": "a scope is repository-relative"
+    },
+    {
+      "case": "schema-version-2",
+      "expected": "PAUSED",
+      "why": "only version 1 records are understood"
+    },
+    {
+      "case": "item-id-mismatch",
+      "expected": "PAUSED",
+      "why": "the record names another item: copying one item's decision into another item's sidecar authorizes nothing"
+    }
+  ]
+}

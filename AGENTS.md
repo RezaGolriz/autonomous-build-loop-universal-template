@@ -36,6 +36,38 @@ Long operations use bounded durable jobs. Return the job ID, inspect existing
 status after a reconnect, and do not start a duplicate merely because the prior
 chat is unavailable. Time, retry, and round limits block rather than pass.
 
+Beyond a single run: `check` answers "where does this stand" and changes
+nothing; its `handover_ready` field means there is something to look at, not
+success. `backlog_add`, `backlog_list`, and `backlog_remove` keep the queue.
+`accept`, `authorize`, and `promote` are human decisions and complete in only two
+ways: the literal word ACCEPT, AUTHORIZE, or PROMOTE typed at an interactive
+terminal, or the same word the human types into the field on a local
+confirmation page. From an input file or a tool call they complete nothing and
+return a `confirmation_url` bound to that operation, that item, and the fully
+resolved decision frozen at that moment; hand the link over and never open it
+yourself. A decision that no longer matches what was frozen is refused as
+`CONFIRMATION_STALE`. The record then keeps the channel `local-http-user` with
+the assurance `local-user-action`, which means a person with access to that
+machine did it and is not proof of who. A project set to `tty-only` in
+`.loop/control/policy.json` refuses those calls with `CONFIRMATION_TTY_ONLY` and
+the exact terminal command; report it and do not work around it. `deauthorize` completes directly and also places a
+project-wide hold: while `.loop/control/hold.json` exists, `start`, `run`, `resume`, `tick`, `task` and `scout` are refused
+with `PROJECT_ON_HOLD` for everything but a person at an interactive terminal, so a new work item is no way around it.
+`cancel` and `handover` keep working. `hold` places one from any channel; only `release`, with the typed word `RELEASE`,
+takes it off. Never work around a hold. `tick` is one cadence step:
+it reports, advances one node, or starts an item a human already authorized as
+READY, within its recorded scope, budget, and expiry; it never starts a paused,
+expired, or invalid item, and it stops continuing a run whose authorization was
+revoked, expired, or does not validate. An authorization also bounds paths: slice
+paths and changed files stay inside its `scope.allowed_paths`. `scout` runs a
+bundled provider wrapper read-only in a disposable copy and writes proposals into
+the inbox, and no other executable can be named; read them with `inbox_list`, and
+only a human confirms turning one into work with `promote` or drops it with
+`discard`. A run reaching HANDOVER
+leaves an advisory note in `.loop/notes/next-steps.md` that later briefs carry
+along; it approves nothing and widens no scope. Acceptance, authorization, scope
+expansion, protected-path exceptions, and external actions are never automatic.
+
 Never edit or delete `.loop/quarantine.json` or runner-owned metadata to force
 progress. Provider-time metadata changes block start, resume, and run until exact
 restoration. Use answer recovery only when the controller confirms that every

@@ -15,8 +15,10 @@ node bin/build-loop.mjs dashboard --root /absolute/target --json
 ```
 
 This works before setup, for a paused candidate, and for an active loop. The
-page shows the project, work kind, phase gates, current recorded job, blockers,
-evidence and work item. It distinguishes a candidate from active configuration.
+page shows the project, work kind, phase gates, current recorded job, the
+authorization of the current item, the backlog, the scout inbox, the last tick
+and scout, the next-steps note, blockers, evidence and work item. It
+distinguishes a candidate from active configuration.
 Job status is a recorded observation, not proof that the process is still alive
 or the work item has passed all gates. This page does not verify the signed
 activation binding; use `status` for that result.
@@ -31,8 +33,11 @@ Keep the URL private: it exposes the selected project's status and work-item
 text to anyone on the same machine who has the link. It serves only this page,
 not arbitrary project files.
 
-The monitoring URL is separate from `confirmation_url`, which comes from
-`request-approval`. The dashboard cannot approve setup.
+The monitoring URL is separate from every `confirmation_url`: the setup approval
+link from `request-approval`, and the decision links that `accept`, `authorize`
+and `promote` return when they are called from anywhere other than an interactive
+terminal. The dashboard cannot approve setup and cannot make any of those
+decisions; it only shows what was recorded.
 
 ## Export a static HTML file with the shell renderer
 
@@ -61,11 +66,30 @@ The page is built only from files in the project's `.loop/` folder:
 | Blockers | `.loop/blockers.md` |
 | Evidence table | every `.loop/evidence/*.json` record |
 | Work item | `.loop/work-items/<id>.md` |
+| Authorization of the current item | `.loop/work-items/<id>.authorization.json` |
+| Backlog | `.loop/backlog.json`, plus one `.loop/work-items/<id>.authorization.json` per entry |
+| Inbox | `.loop/inbox/index.json` |
+| Last tick | the last line of `.loop/scheduler/tick.log` |
+| Last scout | the last line of `.loop/scheduler/scout.log` |
+| Next-steps memory | `.loop/notes/next-steps.md` |
+| Human confirmation mode | `.loop/control/policy.json`, or the default when there is none |
+| Project hold banner | `.loop/control/hold.json` |
 
 Nothing is computed from the agent's output or from Git. If a file is
 missing, the section says "not available" instead of guessing.
 
 ## Reading the page, top to bottom
+
+**Project hold banner.** If `.loop/control/hold.json` exists, a red banner sits
+above everything else and says PROJECT ON HOLD, with the recorded reason, when
+the hold was placed, which channel placed it, and the work item it was placed
+for. While it is there, `start`, `run`, `resume`, `tick`, `task` and `scout` are
+refused for every caller that is not a person at an interactive terminal;
+reading, `cancel` and `handover` keep working. A person takes the hold off with
+`release`: the word RELEASE typed at a terminal or on the local confirmation
+page. A hold record that cannot be read is still shown as a hold, because it
+still holds. Both dashboards — the Node page and `engine/render-dashboard.sh` —
+show the same banner.
 
 **Header.** The work item id, a coloured status badge, the current phase,
 `round/max_rounds`, `gate failures/max`, when the state was last updated,
@@ -89,6 +113,68 @@ back to building.
 phase: the normal ("green") next step and the possible rework targets with
 their defect class. This is read from the workflow file, so it tells you what
 *could* happen, not what will.
+
+**Authorization of the current item.** What a person decided about the item
+that is loaded right now: the state (READY or PAUSED), the allowed paths, the
+budget in rounds and wall-clock seconds, when the authorization expires, which
+channel the decision came through, and whether the item stops at the first
+failed gate. READY means "you may start when your slot comes", inside exactly
+this scope, budget and expiry. It is never approval of a result and it never
+widens the scope of a node.
+
+Three things are called out on this tile:
+
+- An expired authorization is shown as expired, not as READY. Nothing starts
+  from it any more; a person has to authorize it again.
+- A record that does not validate — a broken `expires_at`, a field the schema
+  does not allow — is marked "invalid record · a person has to authorize again".
+  It is never shown as READY. An invalid record is a broken decision, not an
+  absent one, and nothing starts from it.
+- The channel the decision came through is shown as recorded. `interactive-tty`
+  is a word typed at a terminal and `local-http-user` is the same word typed on
+  the local confirmation page; those are the two ways a person can decide.
+  `cli-input` and `mcp-user` are older records from transports that today may
+  only *ask* for a confirmation, and `mcp-user` is still marked "authorized
+  through a chat tool call".
+- The **assurance** is shown next to it. `local-user-action` means a person with
+  access to this machine typed the word. It is not proof of who that person was:
+  the confirmation page is served on loopback, so an agent with shell access on
+  the same computer could in principle open it. The tile also names the
+  project's confirmation mode — `tty-or-local-page` by default, or `tty-only`
+  when `.loop/control/policy.json` says so and the local page is refused
+  altogether.
+
+If the item has no sidecar file, the tile says "not available": nobody has
+authorized anything, and only a person can write that record.
+
+**Backlog.** The queue behind the current item, with the count of READY and
+PAUSED entries and one row per item: id, title, work kind, authorization state
+and expiry. An entry whose authorization has run out is counted as PAUSED and
+marked expired; an entry whose record does not validate is counted as PAUSED and
+marked "invalid record". Nothing in this list starts on its own. A PAUSED item waits for
+a person; a READY item waits for its slot, which a `tick` may give it inside its
+recorded budget.
+
+**Inbox.** Proposals a scout wrote, with id, title, when they were created and
+which provider suggested them. A proposal is inert: it is a piece of text, not
+queued work, and it becomes work only when a person promotes it into the
+backlog. Without an inbox index the tile says "not available".
+
+**Last tick and last scout.** The last line of the tick log, split into the
+time, the action (`ran-node`, `started`, `reported`, `nothing`,
+`replaced-stale-lock`), the reason, and the item, phase and run status at that
+moment; then the last scout entry with its time, status, number of proposals,
+provider and profile. Reasons worth reading are `authorization-revoked`,
+`authorization-expired` and `authorization-invalid`, which all mean the cadence
+stopped because the decision behind it no longer holds. These are log entries
+about what a trigger did. They are not gate results, and a tick may only ever do
+what a person authorized before.
+
+**Next-steps memory.** The advisory note the last run wrote at HANDOVER
+(`.loop/notes/next-steps.md`), folded away until you open it. It summarises the
+run and suggests priorities, and the next DEFINE brief and every scout brief
+carry it along. It approves nothing and widens no scope. Missing note, no
+guessing: the tile says "not available".
 
 **Blockers.** Open questions first (`- [ ]`, red), resolved ones after
 (`- [x]`, grey). Each line names the phase and the run id it came from.

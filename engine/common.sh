@@ -30,10 +30,14 @@ loop_snapshot_stream() {
   (
     cd "$snapshot_root"
     if [ "$snapshot_kind" = source ]; then
+      # .loop/scheduler holds cadence bookkeeping only (tick log, tick lock,
+      # pending confirmations). It is never code and never an artifact, and a
+      # cadence writes it while a node runs, so it is ignored like .loop/evidence.
       find . \( \
         -path './.git' -o -path './.git/*' -o \
         -path './.loop/evidence' -o -path './.loop/evidence/*' -o \
         -path './.loop/control' -o -path './.loop/control/*' -o \
+        -path './.loop/scheduler' -o -path './.loop/scheduler/*' -o \
         -path './.loop/engine.lock' -o -path './.loop/engine.lock/*' -o \
         -path './.loop/orchestrator.lock' -o -path './.loop/orchestrator.lock/*' \
       \) -prune -o \( -type f -o -type l \) -print0

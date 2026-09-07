@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/hold.schema.json",
+  "title": "Project hold record v1",
+  "description": "Written to .loop/control/hold.json when somebody stops this project. While the file exists, start, run, resume, tick, task and scout are refused for every caller that is not a person at an interactive terminal. Reading, cancel and handover stay available. Only a person removes it, with the release operation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "held_at", "held_by", "reason"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "held_at": {"type": "string", "description": "RFC 3339 timestamp of when the hold was placed."},
+    "held_by": {"enum": ["interactive-tty", "local-http-user", "cli-input", "mcp-user"], "description": "The channel the hold was placed through. Any channel may stop a project."},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 4000, "description": "Plain English: why everything was stopped."},
+    "item_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "The work item the hold was placed for, when there was one. A hold is on the project, not on the item: a new work item does not escape it."}
+  }
+}

@@ -4,8 +4,15 @@ import { promises as fs } from 'node:fs';
 import process from 'node:process';
 import { dispatch, operations, requestApproval } from '../control/index.mjs';
 import { approvalSummary, recordTrustedApproval } from '../control/approval.mjs';
+import { checkExitCode } from '../control/check.mjs';
+import { tickExitCode } from '../control/tick.mjs';
 import { resolveRoot } from '../control/common.mjs';
 import { verifyPlanForApproval } from '../control/setup.mjs';
+
+// Human-only decisions. Each needs its own literal word, typed at an
+// interactive terminal. An explicit input file is not a person: it returns a
+// pending request and a local confirmation link instead of completing.
+const confirmations = { accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE' };
 
 function usage(message = '') {
   if (message) process.stderr.write(`${message}\n`);
@@ -29,7 +36,9 @@ while (argv.length) {
 if (!root) usage('--root is required');
 let input = {};
 if (inputFile) {
-  try { input = JSON.parse(await fs.readFile(inputFile, 'utf8')); }
+  // --input normally names a JSON file. A value that already starts with { is
+  // read as the JSON object itself, which keeps a scheduled one-liner readable.
+  try { input = JSON.parse(inputFile.trimStart().startsWith('{') ? inputFile : await fs.readFile(inputFile, 'utf8')); }
   catch (error) { process.stderr.write(`Invalid input JSON: ${error.message}\n`); process.exit(65); }
 }
 let result;
@@ -45,7 +54,34 @@ else if (operation === 'approve') {
       result = answer === 'APPROVE' ? { ok: true, approval: await recordTrustedApproval(root, plan.setup_digest, 'interactive-tty') } : { ok: false, error: { code: 'APPROVAL_MISMATCH', message: 'approval phrase did not match; nothing was approved' } };
     } catch (error) { result = { ok: false, error: { code: error.code || 'APPROVAL_FAILED', message: error.message } }; }
   }
-} else result = await dispatch(root, operation, input);
+} else if (Object.hasOwn(confirmations, operation)) {
+  const word = confirmations[operation];
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    // No terminal, so nobody typed anything. The decision is not completed
+    // here: it becomes a pending request with a local confirmation link.
+    result = await dispatch(root, operation, input, { channel: 'cli-input' });
+  } else {
+    process.stdout.write(`Project root: ${ttyText(root)}\nOperation: ${ttyText(operation)}\nThis is a human decision. It is recorded with the local time and the channel you used.\n`);
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await rl.question(`Type ${word} to confirm: `);
+    rl.close();
+    result = answer === word
+      ? await dispatch(root, operation, operation === 'promote' ? input : { ...input, confirm: word }, { channel: 'interactive-tty' })
+      : { ok: false, error: { code: 'CONFIRMATION_MISMATCH', message: `confirmation phrase did not match; nothing was ${{ accept: 'accepted', promote: 'promoted', release: 'released', authorize: 'authorized' }[operation]}` } };
+  }
+} else if (operation === 'discard') {
+  // Triage is a deliberate call rather than a typed confirmation, but the
+  // record still keeps which boundary the decision came through.
+  result = await dispatch(root, operation, input, { channel: 'cli-input' });
+} else {
+  // Everything else, execution included. A real terminal session is a person;
+  // a command line without one is a script, a scheduler or an agent, and start,
+  // run and resume treat the two differently once an item's authorization has
+  // been withdrawn.
+  result = await dispatch(root, operation, input, { channel: process.stdin.isTTY && process.stdout.isTTY ? 'interactive-tty' : 'cli-input' });
+}
 
 process.stdout.write(`${JSON.stringify(result, null, json ? 2 : 0)}\n`);
-if (!result.ok) process.exitCode = 1;
+if (operation === 'check') process.exitCode = checkExitCode(result);
+else if (operation === 'tick') process.exitCode = tickExitCode(result);
+else if (!result.ok) process.exitCode = 1;
