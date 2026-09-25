@@ -12,7 +12,7 @@ const readyFile = path.join(control, 'approval-runtime', `${approvalId}.ready.js
 const request = await readJson(requestFile); const runtime = await readJson(runtimeFile);
 const esc = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let approvalState = 'pending';
-const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'referrer-policy': 'no-referrer' };
+const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'referrer-policy': 'same-origin' };
 const server = http.createServer(async (req, res) => {
   try {
     const address = server.address();

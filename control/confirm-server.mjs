@@ -23,7 +23,7 @@ const word = humanOperations[request.operation];
 if (!word) { process.stderr.write('unknown confirmable operation\n'); process.exit(65); }
 const esc = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let confirmState = 'pending';
-const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'referrer-policy': 'no-referrer' };
+const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'referrer-policy': 'same-origin' };
 
 function page(token, message = '') {
   const rows = request.summary.map((entry) => `<dt>${esc(entry.label)}</dt><dd>${esc(entry.value)}</dd>`).join('');
