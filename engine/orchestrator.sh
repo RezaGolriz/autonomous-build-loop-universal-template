@@ -547,6 +547,12 @@ human_blocker_answers(){
   [ -d "$answer_dir" ] || { printf '[]\n'; return; }
   for answer_file in "$answer_dir"/*.json; do
     [ -e "$answer_file" ] || continue
+    # Answers recorded for another work item or an earlier phase belong to that
+    # blocker only; they are kept on disk but are not part of this node.
+    jq -e --arg work "$work" --arg phase "$phase" '.work_item_id==$work and .phase==$phase' "$answer_file" >/dev/null 2>&1 || {
+      jq -e 'type=="object"' "$answer_file" >/dev/null 2>&1 || die "invalid blocker answer: ${answer_file##*/}"
+      continue
+    }
     jq -e --arg work "$work" --arg phase "$phase" '
       type=="object" and keys==["answer","answer_id","answer_sha256","blocker_id","phase","recorded_at","schema_version","work_item_id"] and
       .schema_version==1 and .work_item_id==$work and .phase==$phase and
