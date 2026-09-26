@@ -24,9 +24,11 @@ export async function recordTrustedApproval(root, setupDigest, channel, requestI
 }
 
 export async function approvalSummary(root, plan) {
-  const adapter = await readJson(path.join(root, '.loop', 'candidate', 'project.adapter.json'));
-  const state = await readJson(path.join(root, '.loop', 'candidate', 'state.json'));
-  const workText = await fs.readFile(path.join(root, '.loop', 'candidate', 'work-items', `${state.work_item_id}.md`), 'utf8');
+  // A rebind reviews the active setup, unchanged, against a changed package.
+  const base = plan.kind === 'rebind' ? path.join(root, '.loop') : path.join(root, '.loop', 'candidate');
+  const adapter = await readJson(path.join(base, 'project.adapter.json'));
+  const state = await readJson(path.join(base, 'state.json'));
+  const workText = await fs.readFile(path.join(base, 'work-items', `${state.work_item_id}.md`), 'utf8').catch(() => '');
   const workKind = /^Kind: (.+)$/m.exec(workText)?.[1] || 'unspecified';
   const hostFile = path.join(root, '.loop', 'host.local.json');
   const host = await exists(hostFile) ? await readJson(hostFile, 'host.local.json') : null;
@@ -45,11 +47,20 @@ export async function approvalSummary(root, plan) {
     target: adapter.target,
     provider,
     work_kind: workKind,
-    request: plan.requested_scope.request,
-    acceptance_criteria: plan.requested_scope.acceptance_criteria,
-    out_of_scope: plan.requested_scope.out_of_scope,
-    allowed_paths: plan.requested_scope.allowed_paths,
-    frozen_paths: plan.requested_scope.frozen_paths,
+    ...(plan.kind === 'rebind' ? {
+      kind: 'rebind',
+      request: `Re-activate the existing setup after the build-loop package changed (now version ${plan.package_version}). Adapter, workflow, run state and work items stay unchanged; only the activation record is rewritten after the probes pass.`,
+      acceptance_criteria: ['All positive probes pass in a disposable copy.', 'The negative control fails exactly as declared.'],
+      out_of_scope: ['Any change to the adapter, workflow, run state, work items or evidence.'],
+      allowed_paths: [], frozen_paths: [],
+      rebind: { previous_setup_digest: plan.previous_setup_digest, package_version: plan.package_version, distribution_changes: plan.distribution_changes, run_status: state.run_status, work_item_id: state.work_item_id },
+    } : {
+      request: plan.requested_scope.request,
+      acceptance_criteria: plan.requested_scope.acceptance_criteria,
+      out_of_scope: plan.requested_scope.out_of_scope,
+      allowed_paths: plan.requested_scope.allowed_paths,
+      frozen_paths: plan.requested_scope.frozen_paths,
+    }),
     protected_paths: adapter.protected_paths,
     environment_names: adapter.environment.allow_names,
     required_evidence: adapter.validation.required_evidence,

@@ -37,7 +37,13 @@ Use a project-unique request ID for each intended loop_start, loop_run, or
 loop_resume launch; reuse it only for an exact retry. Pause and cancellation take
 effect at a build-node boundary. Activation jobs reject both operations. After a
 cancellation, call loop_handover with the human's acknowledgement before calling
-loop_task for the next work item.
+loop_task for the next work item. With no job in flight, loop_cancel also ends a
+BLOCKED or PAUSED run at once.
+
+After the build-loop package itself changed, starts fail with
+DISTRIBUTION_CHANGED. Call loop_rebind with a negative control, then
+loop_request_approval and hand the link to the human, then loop_activate. The
+active adapter, workflow, run state and work items stay unchanged.
 
 Call loop_check for a read-only situation report; handover_ready means there is
 something for the human to look at, not that the work succeeded. Queue work with

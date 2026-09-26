@@ -2,7 +2,7 @@ import { loopOptions, resolveRunArgs } from './loop-options.mjs';
 import { openDashboard } from './dashboard.mjs';
 import { ControlError, publicError, resolveRoot } from './common.mjs';
 import { requestApproval as approvalRequest } from './approval.mjs';
-import { createDemo, inspectProject, prepareProject } from './setup.mjs';
+import { createDemo, inspectProject, prepareProject, prepareRebind } from './setup.mjs';
 import { answerBlocker, completeHandover, configureHost, createTask, doctor, launchActivation, launchJob, setIntent, status } from './jobs.mjs';
 import { backlogAdd, backlogList, backlogRemove, deauthorize } from './backlog.mjs';
 import { check } from './check.mjs';
@@ -47,6 +47,7 @@ export async function dispatch(root, operation, args = {}, context = {}) {
       case 'demo': return await createDemo(root, args.kind);
       case 'configure': return await configureHost(root, args);
       case 'prepare': return await prepareProject(root, args);
+      case 'rebind': return await prepareRebind(root, args);
       case 'activate': return await launchActivation(root);
       case 'task': return await createTask(root, args, humanChannel(context));
       // Execution carries the same human boundary as a decision: the channel

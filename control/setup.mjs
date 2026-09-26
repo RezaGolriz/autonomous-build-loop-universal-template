@@ -196,6 +196,60 @@ export async function prepareProject(root, args) {
   return { ok: true, status: 'PAUSED', candidate: '.loop/candidate', setup_digest: setupDigest, approval_required: true, next: 'request_approval' };
 }
 
+// Re-activation after the build-loop package itself changed. The activation
+// record binds the package files it was approved with (distributionHashes), so an
+// update makes every start fail with DISTRIBUTION_CHANGED. A rebind plan keeps
+// the active adapter, workflow, state and work items exactly as they are and
+// binds them to the current package: the human reviews the changed package
+// files, the same disposable probes run again, and only activation.json is
+// rewritten.
+function distributionChanges(previous, current) {
+  const names = new Set([...Object.keys(previous || {}), ...Object.keys(current)]);
+  const changes = { added: [], removed: [], changed: [] };
+  for (const name of [...names].sort()) {
+    if (!(name in (previous || {}))) changes.added.push(name);
+    else if (!(name in current)) changes.removed.push(name);
+    else if (previous[name] !== current[name]) changes.changed.push(name);
+  }
+  return changes;
+}
+
+async function rebindInputs(root, negativeControl) {
+  const { loop, control } = await assertControlPath(root);
+  if (!await exists(path.join(loop, 'state.json'))) throw new ControlError('NOT_INITIALIZED', 'rebind needs an initialized project; use prepare for a first setup');
+  const activationFile = path.join(control, 'activation.json');
+  if (!await exists(activationFile)) throw new ControlError('NOT_MANAGED', 'rebind needs a managed activation record');
+  const activation = await readJson(activationFile, 'activation receipt');
+  const adapterBytes = await fs.readFile(path.join(loop, 'project.adapter.json')); const workflowBytes = await fs.readFile(path.join(loop, 'workflow.json'));
+  if (sha256(adapterBytes) !== activation.adapter_file_sha256 || sha256(workflowBytes) !== activation.workflow_file_sha256) throw new ControlError('ACTIVATION_BINDING_CHANGED', 'active adapter or workflow no longer matches approved activation; rebind cannot repair that');
+  const adapter = JSON.parse(adapterBytes.toString('utf8')); validateAdapter(adapter);
+  const workflow = JSON.parse(workflowBytes.toString('utf8'));
+  if (jsonDigest(workflow) !== jsonDigest(await readJson(workflowSource, 'bundled workflow'))) throw new ControlError('WORKFLOW_CHANGED', 'the bundled workflow changed; finish the current work item and set the project up again');
+  validateNegative(negativeControl);
+  const state = await readJson(path.join(loop, 'state.json'), 'state');
+  const source = await sourceManifest(root);
+  for (const link of source.files.filter((item) => item.kind === 'symlink').map((item) => item.path)) await validateCopiedSymlink(root, path.join(root, link));
+  const distribution = await distributionHashes();
+  const configHashes = { kind: 'rebind', previous_setup_digest: activation.setup_digest, adapter_file_sha256: activation.adapter_file_sha256, workflow_file_sha256: activation.workflow_file_sha256, negative_control_sha256: jsonDigest(negativeControl) };
+  const digest = jsonDigest({ source_digest: source.digest, distribution, configHashes });
+  return { digest, source, distribution, configHashes, adapter, workflow, state, activation, rebind: true };
+}
+
+export async function prepareRebind(root, args) {
+  const { loop, control } = await assertControlPath(root);
+  exactKeys(args, ['negative_control'], ['negative_control'], 'rebind');
+  const current = await rebindInputs(root, args.negative_control);
+  if (current.state.run_status === 'RUNNING') throw new ControlError('RUN_ACTIVE', 'pause or cancel the running work item before rebinding');
+  if (jsonDigest(current.distribution) === jsonDigest(current.activation.distribution)) throw new ControlError('DISTRIBUTION_UNCHANGED', 'the build-loop package matches the activation; nothing to rebind');
+  const changes = distributionChanges(current.activation.distribution, current.distribution);
+  const version = (await fs.readFile(path.join(bundleRoot, 'VERSION'), 'utf8')).trim();
+  const candidate = path.join(loop, 'candidate');
+  if (await exists(candidate)) { const archived = path.join(control, 'abandoned-candidates', `${Date.now()}-${nonce(5)}`); await fs.mkdir(path.dirname(archived), { recursive: true }); await fs.rename(candidate, archived); }
+  await ensureRuntimeIgnore(root); await fs.mkdir(candidate, { recursive: true });
+  await atomicJson(path.join(candidate, 'setup.plan.json'), { schema_version: 1, kind: 'rebind', setup_digest: current.digest, created_at: now(), previous_setup_digest: current.activation.setup_digest, package_version: version, distribution_changes: changes, source: current.source, distribution: current.distribution, config_hashes: current.configHashes, negative_control: args.negative_control, approval_status: 'PENDING' });
+  return { ok: true, status: current.state.run_status, kind: 'rebind', candidate: '.loop/candidate', setup_digest: current.digest, package_version: version, distribution_changes: changes, approval_required: true, next: 'request_approval' };
+}
+
 function matchOutput(output, expectation) {
   const source = expectation.stream === 'stdout' ? output.stdout : expectation.stream === 'stderr' ? output.stderr : `${output.stdout}${output.stderr}`;
   if (expectation.match === 'equals') return source === expectation.value;
@@ -239,6 +293,7 @@ export async function runBounded(argv, cwd, seconds, envNames = ['PATH'], isolat
 }
 
 async function verifyCurrentPlan(root, plan) {
+  if (plan.kind === 'rebind') return await rebindInputs(root, plan.negative_control);
   const source = await sourceManifest(root); const distribution = await distributionHashes();
   const adapter = await readJson(path.join(root, '.loop', 'candidate', 'project.adapter.json'));
   validateAdapter(adapter); validateNegative(plan.negative_control);
@@ -310,6 +365,12 @@ async function activateLocked(root) {
     if (afterProbe.digest !== current.digest) throw new ControlError('TARGET_CHANGED_DURING_PROBE', 'the real target, candidate, or control distribution changed while disposable probes ran');
     evidence.target_unchanged = true; evidence.status = 'PASSED'; evidence.finished_at = now();
     await atomicJson(path.join(control, 'setup-evidence', `${plan.setup_digest}.json`), evidence);
+    if (current.rebind) {
+      const state = await readJson(path.join(loop, 'state.json'), 'state');
+      if (state.run_status === 'RUNNING') throw new ControlError('RUN_ACTIVE', 'a run started while rebind probes ran');
+      await atomicJson(path.join(control, 'activation.json'), { schema_version: 1, setup_digest: plan.setup_digest, activated_at: now(), distribution: current.distribution, adapter_sha256: jsonDigest(current.adapter), workflow_sha256: jsonDigest(current.workflow), adapter_file_sha256: current.configHashes.adapter_file_sha256, workflow_file_sha256: current.configHashes.workflow_file_sha256, setup_evidence: `.loop/control/setup-evidence/${plan.setup_digest}.json`, rebound_from: plan.previous_setup_digest });
+      return { ok: true, activated: true, rebind: true, setup_digest: plan.setup_digest, previous_setup_digest: plan.previous_setup_digest, status: state.run_status, evidence: `.loop/control/setup-evidence/${plan.setup_digest}.json` };
+    }
     if (await exists(path.join(loop, 'state.json'))) throw new ControlError('ALREADY_INITIALIZED', 'active state appeared during activation');
     await fs.mkdir(path.join(loop, 'work-items'), { recursive: true });
     await atomicJson(path.join(loop, 'project.adapter.json'), current.adapter);

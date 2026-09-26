@@ -439,7 +439,7 @@ export async function launchJob(root, mode, args, channel = 'mcp-user') {
 
 export async function launchActivation(root) {
   const { loop, control } = await assertControlPath(root); const plan = await verifyPlanForApproval(root); await recoverStaleJob(root);
-  const candidateState = await readJson(path.join(loop, 'candidate', 'state.json'), 'candidate state'); const config = await readJson(path.join(loop, 'host.local.json'), 'host.local.json').catch(() => null);
+  const candidateState = await readJson(path.join(loop, plan.kind === 'rebind' ? 'state.json' : path.join('candidate', 'state.json')), 'candidate state'); const config = await readJson(path.join(loop, 'host.local.json'), 'host.local.json').catch(() => null);
   const requestId = `activate-${plan.setup_digest}`; const scope = { operation: 'activate', max_nodes: 1, work_item_id: candidateState.work_item_id, activation_digest: plan.setup_digest, host_config_digest: config ? jsonDigest(config) : null };
   const requestIndexFile = path.join(control, 'request-index.json'); let requestIndex = await exists(requestIndexFile) ? await readJson(requestIndexFile) : { schema_version: 1, requests: {} };
   const prior = await priorRequest(root, requestIndex, requestId, scope); if (prior) return prior;
@@ -480,7 +480,10 @@ export async function setIntent(root, desired) {
   if (await exists(path.join(control, 'job.lock'))) throw new ControlError('JOB_STARTING', 'a fenced managed job is starting; retry pause or cancel');
   await assertNoEngineLock(root);
   const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: desired.toLowerCase() });
-  try { const state = await readJson(path.join(loop, 'state.json'), 'state'); if (state.run_status !== 'RUNNING') throw new ControlError('NOT_RUNNING', 'no active run can be stopped'); state.run_status = desired; state.last_result = desired === 'PAUSED' ? 'paused at node boundary' : 'cancelled at node boundary'; state.next_action = desired === 'PAUSED' ? 'resume when ready' : 'create a new task after explicit handover decision'; state.updated_at = now(); await atomicJson(path.join(loop, 'state.json'), state); }
+  // Stopping is always allowed: with no job in flight, a BLOCKED or PAUSED run
+  // (for example one stuck at its round cap) can be cancelled directly, so that
+  // handover can acknowledge it and the next work item can start.
+  try { const state = await readJson(path.join(loop, 'state.json'), 'state'); const stoppable = desired === 'CANCELLED' ? ['RUNNING', 'BLOCKED', 'PAUSED'] : ['RUNNING']; if (!stoppable.includes(state.run_status)) throw new ControlError('NOT_RUNNING', desired === 'CANCELLED' ? 'no running, blocked or paused run can be cancelled' : 'no active run can be stopped'); const idle = state.run_status !== 'RUNNING'; state.run_status = desired; state.last_result = desired === 'PAUSED' ? 'paused at node boundary' : idle ? 'cancelled while not running' : 'cancelled at node boundary'; state.next_action = desired === 'PAUSED' ? 'resume when ready' : 'create a new task after explicit handover decision'; state.updated_at = now(); await atomicJson(path.join(loop, 'state.json'), state); }
   finally { await release(); }
   return { ok: true, deferred_until_node_boundary: false, desired_status: desired };
 }

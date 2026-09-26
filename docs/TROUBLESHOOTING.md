@@ -131,6 +131,32 @@ CANCELLED. Call handover with a note acknowledging the cancellation. That local
 acknowledgement changes state to COMPLETED without performing delivery, after
 which task can create the next work item.
 
+A run that is BLOCKED or PAUSED with no job in flight, for example one stuck at
+its round cap, can be cancelled directly; cancel no longer requires a running
+job. Pause still requires one.
+
+## Every start fails with DISTRIBUTION_CHANGED after a package update
+
+The activation record binds the build-loop package files it was approved with.
+After the package is updated, start, run, resume and task are refused with
+DISTRIBUTION_CHANGED, and prepare is refused with ALREADY_INITIALIZED because
+the project is already set up. Use rebind instead:
+
+1. Make sure no run is RUNNING (pause or cancel it first).
+2. Call rebind with a negative control that fails on the current project. It
+   writes a re-activation candidate from the active adapter and workflow and
+   lists the changed, added and removed package files.
+3. Request approval. The local page shows the package change; the human
+   approves it there.
+4. Activate. The same disposable positive probes and the negative control run
+   again. Only when they pass is the activation record rewritten; run state,
+   work items, evidence, adapter and workflow stay as they were.
+
+Rebind refuses when the package did not change (DISTRIBUTION_UNCHANGED), when
+the active adapter or workflow no longer match the activation, and when the
+bundled workflow itself changed (WORKFLOW_CHANGED); the last case needs a fresh
+setup after the current work item ends.
+
 ## The chat disconnected
 
 Reconnect the same project-bound MCP server or reopen the target in Codex. Ask

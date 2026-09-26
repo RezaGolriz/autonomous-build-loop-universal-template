@@ -1,5 +1,5 @@
 // Transport only: the control module owns operations, policy, and state.
-export function createHandler({ root, operations, dispatch, requestApproval, version = '0.4.0', notify = () => {} }) {
+export function createHandler({ root, operations, dispatch, requestApproval, version = '0.4.1', notify = () => {} }) {
   let initialized = false;
   const protocols = ['2025-11-25', '2025-06-18'];
   const approval = { description: 'Open a local human review of the current setup plan. Return the link to the user; never approve it yourself.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } };
