@@ -34,8 +34,11 @@ Finish your reply with exactly this required JSON shape, filled with valid value
 $shape"
 
 provider_write_schema "$phase" "$tmp/schema.json"
+# A phase-specific model (CODEX_MODEL_REVIEW, ...) wins over CODEX_MODEL.
+phase_model_var="CODEX_MODEL_$phase"
+model=${!phase_model_var:-${CODEX_MODEL:-}}
 run_codex(){
-  if [ -n "${CODEX_MODEL:-}" ]; then provider_run_timed "$bin" --model "$CODEX_MODEL" "$@"
+  if [ -n "$model" ]; then provider_run_timed "$bin" --model "$model" "$@"
   else provider_run_timed "$bin" "$@"
   fi
 }

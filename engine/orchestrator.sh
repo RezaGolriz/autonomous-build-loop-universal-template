@@ -41,6 +41,7 @@ write_state(){
   local tmp
   tmp=$(mktemp "$loop/.state.XXXXXX")
   jq "$@" "$state" > "$tmp" || { rm -f "$tmp"; die 'state update failed'; }
+  loop_apply_pause_accounting "$tmp" "$state" || { rm -f "$tmp"; die 'state update failed'; }
   validate_state "$tmp" || { rm -f "$tmp"; die 'resulting state invalid'; }
   chmod --reference="$state" "$tmp" 2>/dev/null || :
   mv "$tmp" "$state"
@@ -72,7 +73,7 @@ cap_reason(){
   [ "$(jq -r .gate_failures_here "$state")" -lt "$(jq -r .max_gate_failures "$state")" ] || { echo 'retry cap reached'; return; }
   started=$(jq -r '.started_epoch // 0' "$state")
   [ "$started" -gt 0 ] || { echo 'running state has no start time'; return; }
-  elapsed=$(( $(date +%s) - started ))
+  elapsed=$(loop_elapsed_seconds "$state")
   [ "$elapsed" -le "$(jq -r .max_wall_seconds "$state")" ] || { echo 'wall clock cap reached'; return; }
 }
 
@@ -574,7 +575,8 @@ call_provider(){ # brief out err
     env_args+=("$name=${!name-}")
     env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")
   done < <(jq -r '.environment.allow_names[]' "$adapter_file")
-  for name in HOME USER LOGNAME SHELL CODEX_HOME CLAUDE_CONFIG_DIR CODEX_BIN CLAUDE_BIN CODEX_MODEL CLAUDE_MODEL PROVIDER_TIMEOUT; do
+  for name in HOME USER LOGNAME SHELL CODEX_HOME CLAUDE_CONFIG_DIR CODEX_BIN CLAUDE_BIN CODEX_MODEL CLAUDE_MODEL PROVIDER_TIMEOUT \
+    CLAUDE_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT} CODEX_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT}; do
     [ -n "${!name+x}" ] || continue
     jq -e --arg name "$name" 'has($name)' <<<"$env_seen" >/dev/null && continue
     env_args+=("$name=${!name}"); env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")

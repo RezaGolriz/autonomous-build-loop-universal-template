@@ -135,6 +135,23 @@ A run that is BLOCKED or PAUSED with no job in flight, for example one stuck at
 its round cap, can be cancelled directly; cancel no longer requires a running
 job. Pause still requires one.
 
+## Restarting a cancelled work item under the same id
+
+After a cancellation and its handover, task may create the work item again with
+the same work_item_id. The old work item, the cancellation handover record and
+any authorization are moved to `.loop/control/cancelled/<id>-<time>/`, never
+deleted, so the new run needs a fresh authorization. Only a cancelled item can
+be restarted this way; an item that ended with a completed handover keeps its
+id, and task still answers WORK_ITEM_EXISTS.
+
+## WALL_CAP_REACHED after a long wait
+
+From version 0.5.0 on, time spent BLOCKED, PAUSED or waiting for a person is not
+charged to max_wall_seconds. A run that was already waiting when the package
+was updated has no `paused_epoch` yet, so its waiting time up to that moment
+still counts; cancel it and start it again under the same id if its budget ran
+out.
+
 ## Every start fails with DISTRIBUTION_CHANGED after a package update
 
 The activation record binds the build-loop package files it was approved with.

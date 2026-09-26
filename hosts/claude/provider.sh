@@ -35,8 +35,11 @@ Finish your reply with exactly this required JSON shape, filled with valid value
 $shape"
 
 provider_write_schema "$phase" "$tmp/schema.json"
+# A phase-specific model (CLAUDE_MODEL_REVIEW, ...) wins over CLAUDE_MODEL.
+phase_model_var="CLAUDE_MODEL_$phase"
+model=${!phase_model_var:-${CLAUDE_MODEL:-}}
 run_claude(){
-  if [ -n "${CLAUDE_MODEL:-}" ]; then provider_run_timed "$bin" --model "$CLAUDE_MODEL" "$@"
+  if [ -n "$model" ]; then provider_run_timed "$bin" --model "$model" "$@"
   else provider_run_timed "$bin" "$@"
   fi
 }

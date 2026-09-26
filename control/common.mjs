@@ -13,6 +13,22 @@ export class ControlError extends Error {
 }
 
 export const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+const epoch = () => Math.floor(Date.now() / 1000);
+
+// Waiting for a person does not use up the wall-clock budget (see
+// LOOP_PAUSE_ACCOUNTING_JQ in engine/common.sh, which the engine applies to
+// its own state writes). Call this whenever the control layer moves a run out
+// of RUNNING; the engine moves started_epoch forward when the run resumes.
+export function leaveRunning(state, status) {
+  if (state.run_status === 'RUNNING' && status !== 'RUNNING' && state.started_epoch > 0 && state.paused_epoch === undefined) state.paused_epoch = epoch();
+  state.run_status = status;
+  return state;
+}
+
+// Seconds of wall clock a run has used, excluding time spent waiting.
+export function elapsedSeconds(state) {
+  return (state.paused_epoch ?? epoch()) - (state.started_epoch || 0);
+}
 export const nonce = (bytes = 18) => randomBytes(bytes).toString('base64url');
 export const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 export const jsonDigest = (value) => sha256(JSON.stringify(sortObject(value)));

@@ -6,13 +6,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signHostConfiguration, verifyApproval, verifyHostConfiguration } from './approval-store.mjs';
 import {
-  ControlError, acquireDirLock, assertControlPath, assertNoEngineLock, atomicJson, atomicText, exactKeys,
+  ControlError, acquireDirLock, assertControlPath, assertNoEngineLock, atomicJson, atomicText, elapsedSeconds, exactKeys, leaveRunning,
   confirmationPolicy, effectivePath, ensureRuntimeIgnore, exists, jsonDigest, nonce, now, readJson, safeRelativeArray, sha256, stringArray, stringValue,
 } from './common.mjs';
 import { activateProject, bundleRoot, distributionHashes, runBounded, verifyPlanForApproval } from './setup.mjs';
 import { authorizationExpired, backlogSummary, inboxCount, readAuthorization } from './backlog.mjs';
 import { assertNotHeld, holdSummary } from './hold.mjs';
 import { writeNextSteps } from './notes.mjs';
+import { MODEL_KEYS, MODEL_NAME_PATTERN } from './schemas.mjs';
 
 const orchestrator = path.join(bundleRoot, 'engine', 'orchestrator.sh');
 const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'worker.mjs');
@@ -41,11 +42,17 @@ async function authenticationState(root, host, installed, check, trusted) {
   catch { return false; }
 }
 
-async function wrapProvider(control, role, host, providerPath, cliPath, enabled) {
-  if (!enabled || host === 'mock' || !cliPath) return providerPath;
-  const wrapper = path.join(control, 'providers', `${role}-${host}.sh`); const variable = host === 'claude' ? 'CLAUDE_BIN' : 'CODEX_BIN';
+// The orchestrator clears the environment before it runs a provider, so the
+// CLI path and the per-phase models travel in a generated wrapper instead.
+async function wrapProvider(control, role, host, providerPath, cliPath, enabled, models = null) {
+  const bin = enabled && cliPath; const hasModels = models && Object.keys(models).length > 0;
+  if (host === 'mock' || (!bin && !hasModels)) return providerPath;
+  const wrapper = path.join(control, 'providers', `${role}-${host}.sh`); const prefix = host === 'claude' ? 'CLAUDE' : 'CODEX';
   const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-  await atomicText(wrapper, `#!/bin/sh\nexport ${variable}=${shellQuote(cliPath)}\nexec ${shellQuote(providerPath)}\n`, 0o700); await fs.chmod(wrapper, 0o700);
+  const exports = [];
+  if (bin) exports.push(`export ${prefix}_BIN=${shellQuote(cliPath)}`);
+  for (const [key, model] of Object.entries(models || {})) exports.push(`export ${prefix}_MODEL${key === 'default' ? '' : `_${key}`}=${shellQuote(model)}`);
+  await atomicText(wrapper, `#!/bin/sh\n${exports.join('\n')}\nexec ${shellQuote(providerPath)}\n`, 0o700); await fs.chmod(wrapper, 0o700);
   return wrapper;
 }
 
@@ -61,7 +68,13 @@ export async function configureHost(root, args) {
 }
 
 async function configureHostUnlocked(root, args, loop, control) {
-  exactKeys(args, ['host', 'provider_path', 'cli_path', 'review_host', 'review_provider_path', 'review_cli_path'], ['host'], 'args');
+  exactKeys(args, ['host', 'provider_path', 'cli_path', 'review_host', 'review_provider_path', 'review_cli_path', 'models'], ['host'], 'args');
+  if (args.models !== undefined) {
+    if (!args.models || typeof args.models !== 'object' || Array.isArray(args.models)) throw new ControlError('INVALID_INPUT', 'models must be an object');
+    exactKeys(args.models, MODEL_KEYS, [], 'models');
+    for (const [key, model] of Object.entries(args.models)) if (typeof model !== 'string' || !new RegExp(MODEL_NAME_PATTERN).test(model)) throw new ControlError('INVALID_INPUT', `models.${key} is not a valid model name`);
+  }
+  const models = args.models && Object.keys(args.models).length ? args.models : null;
   if (!['codex', 'claude', 'mock'].includes(args.host)) throw new ControlError('INVALID_INPUT', 'host must be codex, claude, or mock');
   if (args.provider_path && !path.isAbsolute(args.provider_path)) throw new ControlError('INVALID_INPUT', 'provider_path must be absolute');
   if (args.cli_path && !path.isAbsolute(args.cli_path)) throw new ControlError('INVALID_INPUT', 'cli_path must be absolute');
@@ -74,14 +87,14 @@ async function configureHostUnlocked(root, args, loop, control) {
   const rawProviderPath = args.provider_path || bundledProviderPath; const rawReviewProviderPath = args.review_provider_path || bundledReviewProviderPath;
   const cliPath = args.host === 'mock' ? null : (args.cli_path || (trustedBundledProvider ? await commandPath(args.host) : null));
   const reviewCliPath = reviewHost === 'mock' ? null : (args.review_cli_path || (trustedBundledReviewProvider ? (reviewHost === args.host && cliPath ? cliPath : await commandPath(reviewHost)) : null));
-  const providerPath = await wrapProvider(control, 'primary', args.host, rawProviderPath, cliPath, Boolean(args.cli_path));
-  const reviewProviderPath = await wrapProvider(control, 'review', reviewHost, rawReviewProviderPath, reviewCliPath, Boolean(args.review_cli_path));
+  const providerPath = await wrapProvider(control, 'primary', args.host, rawProviderPath, cliPath, Boolean(args.cli_path), models);
+  const reviewProviderPath = await wrapProvider(control, 'review', reviewHost, rawReviewProviderPath, reviewCliPath, Boolean(args.review_cli_path), models);
   const authCheck = builtInAuthCheck(args.host, cliPath, trustedBundledProvider && !args.cli_path);
   const reviewAuthCheck = builtInAuthCheck(reviewHost, reviewCliPath, trustedBundledReviewProvider && !args.review_cli_path);
-  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, updated_at: now() };
+  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, ...(models ? { models } : {}), updated_at: now() };
   config.host_signature = await signHostConfiguration(root, config);
   await atomicJson(path.join(loop, 'host.local.json'), config);
-  return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check) };
+  return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check), models: config.models ?? null };
 }
 
 export async function doctor(root) {
@@ -144,8 +157,25 @@ function renderWorkItem(id, args) {
   return `# ${id}: ${oneLine(args.request.split(/\r?\n/, 1)[0].slice(0, 120))}\n\nKind: ${validateKind(args.work_kind)}\n\n## Outcome\n\n${quoteBlock(args.request)}\n\n## Acceptance criteria\n\n${args.acceptance_criteria.map((v, i) => `- AC-${i + 1}: ${oneLine(v)}`).join('\n')}\n\n## Out of scope\n\n${args.out_of_scope.map((v) => `- ${oneLine(v)}`).join('\n')}\n\n## Constraints and invariants\n\n- Preserve the approved adapter, workflow, and external-action boundaries.\n- ${workKinds[validateKind(args.work_kind)].guidance}\n\n## Design\n\n## Execution slices\n\n| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |\n|---|---|---|---|---|\n| 1 | ${args.allowed_paths.map((v) => `\`${v}\``).join(', ')} | ${(args.frozen_paths || []).map((v) => `\`${v}\``).join(', ') || 'none'} | configured adapter commands | runner evidence |\n\n## Independent review\n\n## Validation\n\n## Handover\n`;
 }
 
+// A work item whose last run was cancelled (and acknowledged) may start again
+// under the same id. Its old records are moved, never deleted: the work item,
+// the cancellation handover and any authorization go to
+// control/cancelled/<id>-<time>/, so the new run needs a fresh authorization.
+// A work item that ended any other way keeps its id for good.
+async function archiveCancelledItem(loop, control, id, workPath) {
+  const handoverFile = path.join(control, 'handovers', `${id}.json`);
+  const handover = await exists(handoverFile) ? await readJson(handoverFile, 'handover record') : null;
+  if (handover?.kind !== 'cancellation') throw new ControlError('WORK_ITEM_EXISTS', `work item already exists: ${id}; only a cancelled work item can start again under its id`);
+  const archive = path.join(control, 'cancelled', `${id}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  await fs.mkdir(archive, { recursive: true });
+  await fs.rename(workPath, path.join(archive, 'work-item.md'));
+  await fs.rename(handoverFile, path.join(archive, 'handover.json'));
+  const authorization = path.join(loop, 'work-items', `${id}.authorization.json`);
+  if (await exists(authorization)) await fs.rename(authorization, path.join(archive, 'authorization.json'));
+}
+
 export async function createTask(root, args, channel = 'mcp-user') {
-  const { loop } = await assertControlPath(root); await assertNotHeld(root, channel, 'task'); await assertNoEngineLock(root); await verifyActivationBinding(root);
+  const { loop, control } = await assertControlPath(root); await assertNotHeld(root, channel, 'task'); await assertNoEngineLock(root); await verifyActivationBinding(root);
   stringValue(args.request, 'request', { max: 20000 }); stringArray(args.acceptance_criteria, 'acceptance_criteria', { min: 1 }); stringArray(args.out_of_scope, 'out_of_scope', { min: 1 }); safeRelativeArray(args.allowed_paths, 'allowed_paths', 1); safeRelativeArray(args.frozen_paths || [], 'frozen_paths');
   let id = args.work_item_id;
   const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: 'task' });
@@ -157,9 +187,10 @@ export async function createTask(root, args, channel = 'mcp-user') {
       id = `WI-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
     }
     stringValue(id, 'work_item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/ }); const workPath = path.join(loop, 'work-items', `${id}.md`);
-    if (await exists(workPath)) throw new ControlError('WORK_ITEM_EXISTS', `work item already exists: ${id}`);
+    if (await exists(workPath)) await archiveCancelledItem(loop, control, id, workPath);
     await atomicText(workPath, renderWorkItem(id, args));
     const next = { ...state, work_item_id: id, phase: 'DEFINE', run_status: 'PAUSED', step: 'task-prepared', round: 0, gate_failures_here: 0, started_epoch: 0, gates: blankGates(), last_result: 'New bounded work item prepared.', next_action: 'Review the work item, then start.', updated_at: now() };
+    delete next.paused_epoch;
     await atomicJson(path.join(loop, 'state.json'), next);
   } finally { await release(); }
   return { ok: true, work_item_id: id, status: 'PAUSED', next: 'start' };
@@ -368,7 +399,7 @@ export async function launchJob(root, mode, args, channel = 'mcp-user') {
   // has not run yet", not "waiting for a person"; the node itself may still run.
   if (mode === 'run' && !['PAUSED', 'RUNNING'].includes(state.run_status) && !handoverNodePending(state)) throw new ControlError('INVALID_STATE', 'run requires PAUSED or RUNNING state');
   if (state.round >= state.max_rounds) throw new ControlError('ROUND_CAP_REACHED', 'round cap is already reached');
-  if (state.started_epoch > 0 && Math.floor(Date.now() / 1000) - state.started_epoch > state.max_wall_seconds) throw new ControlError('WALL_CAP_REACHED', 'original wall-clock cap is already reached');
+  if (state.started_epoch > 0 && elapsedSeconds(state) > state.max_wall_seconds) throw new ControlError('WALL_CAP_REACHED', 'original wall-clock cap is already reached');
   if (!await executable(config.provider_path) || !await executable(config.review_provider_path)) throw new ControlError('PROVIDER_NOT_INSTALLED', 'configured provider or review provider is not executable');
   const existing = await activeJob(root); if (existing && ['QUEUED', 'RUNNING', 'STOPPING'].includes(existing.status)) throw new ControlError('JOB_ACTIVE', `job ${existing.job_id} is already active`);
   const jobId = `job-${Date.now()}-${nonce(6)}`;
@@ -483,7 +514,7 @@ export async function setIntent(root, desired) {
   // Stopping is always allowed: with no job in flight, a BLOCKED or PAUSED run
   // (for example one stuck at its round cap) can be cancelled directly, so that
   // handover can acknowledge it and the next work item can start.
-  try { const state = await readJson(path.join(loop, 'state.json'), 'state'); const stoppable = desired === 'CANCELLED' ? ['RUNNING', 'BLOCKED', 'PAUSED'] : ['RUNNING']; if (!stoppable.includes(state.run_status)) throw new ControlError('NOT_RUNNING', desired === 'CANCELLED' ? 'no running, blocked or paused run can be cancelled' : 'no active run can be stopped'); const idle = state.run_status !== 'RUNNING'; state.run_status = desired; state.last_result = desired === 'PAUSED' ? 'paused at node boundary' : idle ? 'cancelled while not running' : 'cancelled at node boundary'; state.next_action = desired === 'PAUSED' ? 'resume when ready' : 'create a new task after explicit handover decision'; state.updated_at = now(); await atomicJson(path.join(loop, 'state.json'), state); }
+  try { const state = await readJson(path.join(loop, 'state.json'), 'state'); const stoppable = desired === 'CANCELLED' ? ['RUNNING', 'BLOCKED', 'PAUSED'] : ['RUNNING']; if (!stoppable.includes(state.run_status)) throw new ControlError('NOT_RUNNING', desired === 'CANCELLED' ? 'no running, blocked or paused run can be cancelled' : 'no active run can be stopped'); const idle = state.run_status !== 'RUNNING'; leaveRunning(state, desired); state.last_result = desired === 'PAUSED' ? 'paused at node boundary' : idle ? 'cancelled while not running' : 'cancelled at node boundary'; state.next_action = desired === 'PAUSED' ? 'resume when ready' : 'create a new task after explicit handover decision'; state.updated_at = now(); await atomicJson(path.join(loop, 'state.json'), state); }
   finally { await release(); }
   return { ok: true, deferred_until_node_boundary: false, desired_status: desired };
 }
@@ -665,7 +696,7 @@ async function blockForAuthorization(root, reason) {
     const line = `- [ ] ${state.phase} ${state.work_item_id}: ${reason}`;
     const text = await fs.readFile(blockers, 'utf8').catch(() => '# Blockers\n\n');
     if (!text.split('\n').includes(line)) await atomicText(blockers, `${text}${text.endsWith('\n') ? '' : '\n'}${line}\n`, 0o644);
-    state.run_status = 'BLOCKED';
+    leaveRunning(state, 'BLOCKED');
     state.last_result = reason;
     state.next_action = 'Read the evidence, decide what should happen, then resume or deauthorize the item.';
     state.updated_at = now();
@@ -722,8 +753,8 @@ async function setCanonicalStop(root, desired) {
   const loop = path.join(root, '.loop'); const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: 'job-stop' });
   try {
     const state = await readJson(path.join(loop, 'state.json'));
-    if (desired === 'CANCELLED' && ['RUNNING', 'PAUSED', 'WAITING_FOR_HUMAN', 'BLOCKED'].includes(state.run_status)) state.run_status = 'CANCELLED';
-    else if (desired === 'PAUSED' && state.run_status === 'RUNNING') state.run_status = 'PAUSED';
+    if (desired === 'CANCELLED' && ['RUNNING', 'PAUSED', 'WAITING_FOR_HUMAN', 'BLOCKED'].includes(state.run_status)) leaveRunning(state, 'CANCELLED');
+    else if (desired === 'PAUSED' && state.run_status === 'RUNNING') leaveRunning(state, 'PAUSED');
     if (state.run_status === desired) { state.last_result = desired === 'PAUSED' ? 'paused at node boundary' : 'cancelled at node boundary'; state.next_action = desired === 'PAUSED' ? 'resume when ready' : 'run cancelled'; state.updated_at = now(); await atomicJson(path.join(loop, 'state.json'), state); }
     return state.run_status;
   }

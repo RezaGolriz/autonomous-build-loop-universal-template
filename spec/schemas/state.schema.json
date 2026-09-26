@@ -16,6 +16,7 @@
     "gate_failures_here": {"type": "integer", "minimum": 0},
     "max_gate_failures": {"type": "integer", "minimum": 1},
     "started_epoch": {"type": "integer", "minimum": 0},
+    "paused_epoch": {"type": "integer", "minimum": 0, "description": "When a run that had started left RUNNING; the wait is not charged to max_wall_seconds."},
     "max_wall_seconds": {"type": "integer", "minimum": 1},
     "autonomy": {"enum": ["supervised", "guarded", "autonomous"]},
     "gates": {"$ref": "#/$defs/gates"},
@@ -23,7 +24,7 @@
     "next_action": {"type": "string", "minLength": 1},
     "updated_at": {"type": "string", "format": "date-time"}
   },
-  "allOf": [{"if": {"properties": {"run_status": {"const": "RUNNING"}}, "required": ["run_status"]}, "then": {"required": ["started_epoch", "max_wall_seconds"]}}],
+  "allOf": [{"if": {"properties": {"run_status": {"const": "RUNNING"}}, "required": ["run_status"]}, "then": {"required": ["started_epoch", "max_wall_seconds"], "not": {"required": ["paused_epoch"]}}}],
   "$defs": {
     "gate": {
       "type": "object",

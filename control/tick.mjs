@@ -8,7 +8,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  ControlError, acquireDirLock, assertControlPath, atomicJson, exists, intValue, nonce, now, readJson,
+  ControlError, acquireDirLock, assertControlPath, atomicJson, exists, intValue, leaveRunning, nonce, now, readJson,
 } from './common.mjs';
 import { authorizationExpired, backlogFile, readAuthorization, readBacklog, workItemFile } from './backlog.mjs';
 import { check } from './check.mjs';
@@ -193,7 +193,7 @@ async function blockRun(loop) {
   try {
     const state = await readJson(path.join(loop, 'state.json'), 'state');
     if (state.run_status === 'BLOCKED') return;
-    state.run_status = 'BLOCKED';
+    leaveRunning(state, 'BLOCKED');
     state.last_result = 'A gate failed and the authorization says stop on the first failure.';
     state.next_action = 'Read the evidence, decide what should happen, then resume or deauthorize the item.';
     state.updated_at = now();

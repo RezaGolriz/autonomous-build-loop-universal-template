@@ -46,6 +46,28 @@ Then run:
 node bin/build-loop.mjs configure --root /absolute/project --input /absolute/configure.json --json
 ```
 
+### Model per phase
+
+`models` picks the provider model for each phase. `default` applies to every
+phase without its own entry; a phase that is not listed and has no default uses
+the CLI's own default model, exactly as before. Valid keys are `default`,
+`DEFINE`, `DESIGN`, `EXECUTE`, `REVIEW`, `VALIDATE`, `HANDOVER` and `SCOUT`.
+
+```json
+{
+  "host": "claude",
+  "models": { "default": "sonnet", "REVIEW": "opus" }
+}
+```
+
+The models are part of the signed host configuration. Because the orchestrator
+clears the environment before it runs a provider, configure writes them into
+the generated provider wrapper as `CLAUDE_MODEL` (or `CODEX_MODEL`) for the
+default and `CLAUDE_MODEL_<PHASE>` for each phase; a phase variable wins over
+the default. The same variables also work when set directly for a manual run.
+Keep the independent review on your strongest model: it is the check every
+other phase relies on.
+
 Valid host values are codex, claude, and mock. mock is test infrastructure.
 Executable availability and authentication are machine facts. They do not
 belong in the portable project adapter.
@@ -264,6 +286,12 @@ change.
 prepare may set max_rounds, max_gate_failures, max_wall_seconds, and autonomy.
 These values bound continuation; they do not authorize new actions. The engine
 still blocks at missing decisions and external-effect boundaries.
+
+max_wall_seconds counts only the time a run is actually RUNNING. When a run
+leaves RUNNING (blocked, paused, waiting for a person), the state records
+`paused_epoch`; when it runs again, `started_epoch` moves forward by the time
+spent waiting. A run that waits a day for an answer therefore still has its
+full budget of working time.
 
 replace_candidate permits an intentional replacement of an existing paused
 candidate. Review the changed setup digest through a new approval flow.

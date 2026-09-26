@@ -5,6 +5,10 @@ const relPath = { type: 'string', minLength: 1, maxLength: 1024, pattern: '^(?!/
 const nonEmptyStrings = { type: 'array', minItems: 1, maxItems: 128, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 4096 } };
 const argvStrings = { type: 'array', minItems: 1, maxItems: 256, items: { type: 'string', minLength: 1, maxLength: 4096 } };
 const strict = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required });
+// Provider model per phase: `default` applies to every phase without its own entry.
+export const MODEL_KEYS = Object.freeze(['default', 'DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER', 'SCOUT']);
+export const MODEL_NAME_PATTERN = '^[A-Za-z0-9][A-Za-z0-9._:\\[\\]-]{0,79}$';
+const modelName = { type: 'string', pattern: MODEL_NAME_PATTERN };
 
 const commandSchema = strict({
   id: { type: 'string', pattern: '^[a-z][a-z0-9-]*$' },
@@ -111,7 +115,7 @@ export const operations = Object.freeze({
   inspect: { description: 'Read bounded project signals and return recommendations plus precise missing setup inputs.', inputSchema: strict({}, []) },
   doctor: { description: 'Check the control host, active/candidate configuration, provider installation, and authentication without exposing command output.', inputSchema: strict({}, []) },
   demo: { description: 'Create a runnable docs or Python demonstration in an empty selected project root and prepare a paused setup candidate.', inputSchema: strict({ kind: { enum: ['docs', 'python'] } }, ['kind']) },
-  configure: { description: 'Persist signed machine-local builder and reviewer providers, resolved CLI paths, and safe default authentication checks for bundled Codex or Claude providers.', inputSchema: strict({ host: { enum: ['codex', 'claude', 'mock'] }, provider_path: { type: 'string', minLength: 1 }, cli_path: { type: 'string', minLength: 1 }, review_host: { enum: ['codex', 'claude', 'mock'] }, review_provider_path: { type: 'string', minLength: 1 }, review_cli_path: { type: 'string', minLength: 1 } }, ['host']) },
+  configure: { description: 'Persist signed machine-local builder and reviewer providers, resolved CLI paths, and safe default authentication checks for bundled Codex or Claude providers. Optional models picks the provider model per phase (for example REVIEW: opus, default: sonnet); unset phases use the CLI default.', inputSchema: strict({ host: { enum: ['codex', 'claude', 'mock'] }, provider_path: { type: 'string', minLength: 1 }, cli_path: { type: 'string', minLength: 1 }, review_host: { enum: ['codex', 'claude', 'mock'] }, review_provider_path: { type: 'string', minLength: 1 }, review_cli_path: { type: 'string', minLength: 1 }, models: strict(Object.fromEntries(MODEL_KEYS.map((key) => [key, modelName])), []) }, ['host']) },
   prepare: { description: 'Write a complete paused candidate from explicit intent, bounded paths, a validated adapter or recommendation, and a meaningful negative control.', inputSchema: prepareSchema },
   rebind: { description: 'After the build-loop package changed (DISTRIBUTION_CHANGED), write a re-activation candidate that keeps the active adapter, workflow, run state and work items unchanged. It then needs the same human approval and disposable probes as a first activation; only the activation record is rewritten.', inputSchema: strict({ negative_control: negativeSchema }, ['negative_control']) },
   activate: { description: 'Start a durable activation job using the persisted receipt; it runs digest-bound disposable positive and negative probes and publishes active state only when all gates pass.', inputSchema: strict({}, []) },

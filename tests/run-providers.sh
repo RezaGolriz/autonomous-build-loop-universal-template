@@ -33,6 +33,12 @@ grep -Fx -- '--permission-mode' "$tmp/claude-exec.args" >/dev/null || bad 'Claud
 grep -Fx -- 'fable' "$tmp/claude-exec.args" >/dev/null || bad 'Claude model override missing'
 ok 'Claude uses native structured output for mutable nodes'
 
+FAKE_ARGS="$tmp/claude-phase.args" CLAUDE_BIN="$tmp/fake-claude" CLAUDE_MODEL=fable CLAUDE_MODEL_EXECUTE=sonnet CLAUDE_MODEL_REVIEW=opus LOOP_PHASE=EXECUTE "$claude_provider" < "$tmp/execute.json" > "$tmp/out.json"
+grep -Fx -- 'sonnet' "$tmp/claude-phase.args" >/dev/null || bad 'Claude phase model missing'
+grep -Fx -- 'fable' "$tmp/claude-phase.args" >/dev/null && bad 'Claude phase model did not win over CLAUDE_MODEL'
+grep -Fx -- 'opus' "$tmp/claude-phase.args" >/dev/null && bad 'Claude used another phase model'
+ok 'Claude phase model wins over the default model'
+
 FAKE_ARGS="$tmp/claude-review.args" CLAUDE_BIN="$tmp/fake-claude" LOOP_PHASE=REVIEW "$claude_provider" < "$tmp/review.json" > "$tmp/out.json"
 jq -e '.result=="PASS" and .independent==true' "$tmp/out.json" >/dev/null || bad 'Claude review output failed'
 grep -Fx -- '--restricted' "$tmp/claude-review.args" >/dev/null || bad 'Claude review lacks restricted mode'
@@ -73,6 +79,11 @@ grep -Fx -- '--output-schema' "$tmp/codex-exec.args" >/dev/null || bad 'Codex sc
 grep -Fx -- 'workspace-write' "$tmp/codex-exec.args" >/dev/null || bad 'Codex execute sandbox changed'
 grep -Fx -- 'gpt-5.6-sol' "$tmp/codex-exec.args" >/dev/null || bad 'Codex model override missing'
 ok 'Codex uses native output schema and preserves mutable-node sandbox'
+
+FAKE_ARGS="$tmp/codex-phase.args" FAKE_SCHEMA="$tmp/codex-phase.schema" CODEX_BIN="$tmp/fake-codex" CODEX_MODEL=gpt-5.6-sol CODEX_MODEL_EXECUTE=gpt-5-codex LOOP_PHASE=EXECUTE "$codex_provider" < "$tmp/execute.json" > "$tmp/out.json"
+grep -Fx -- 'gpt-5-codex' "$tmp/codex-phase.args" >/dev/null || bad 'Codex phase model missing'
+grep -Fx -- 'gpt-5.6-sol' "$tmp/codex-phase.args" >/dev/null && bad 'Codex phase model did not win over CODEX_MODEL'
+ok 'Codex phase model wins over the default model'
 
 FAKE_ARGS="$tmp/codex-review.args" FAKE_SCHEMA="$tmp/codex-review.schema" CODEX_BIN="$tmp/fake-codex" LOOP_PHASE=REVIEW "$codex_provider" < "$tmp/review.json" > "$tmp/out.json"
 jq -e '.result=="PASS" and .independent==true' "$tmp/out.json" >/dev/null || bad 'Codex review output failed'

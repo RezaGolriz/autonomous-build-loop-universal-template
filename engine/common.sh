@@ -4,7 +4,8 @@
 # orchestrator. Callers are responsible for requiring jq, find, and shasum.
 
 loop_validate_state() {
-  jq -e 'type=="object" and ((keys-["schema_version","work_item_id","phase","run_status","step","round","max_rounds","gate_failures_here","max_gate_failures","started_epoch","max_wall_seconds","autonomy","gates","last_result","next_action","updated_at"])|length==0) and .schema_version==1 and
+  jq -e 'type=="object" and ((keys-["schema_version","work_item_id","phase","run_status","step","round","max_rounds","gate_failures_here","max_gate_failures","started_epoch","paused_epoch","max_wall_seconds","autonomy","gates","last_result","next_action","updated_at"])|length==0) and .schema_version==1 and
+    ((has("paused_epoch")|not) or (.paused_epoch|type=="number" and .>=0 and floor==.)) and (.run_status!="RUNNING" or (has("paused_epoch")|not)) and
     (.work_item_id|test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and (.phase as $p|["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"]|index($p)!=null) and
     (.run_status as $s|["PAUSED","RUNNING","BLOCKED","WAITING_FOR_HUMAN","COMPLETED","CANCELLED"]|index($s)!=null) and
     all([.step,.next_action,.updated_at][];type=="string" and length>0) and (.last_result|type=="string") and
@@ -12,6 +13,29 @@ loop_validate_state() {
     (if .run_status=="RUNNING" then (.started_epoch|type=="number" and .>=0 and floor==.) and (.max_wall_seconds|type=="number" and .>=1 and floor==.) else ((.started_epoch//0)|type=="number" and .>=0 and floor==.) and ((.max_wall_seconds//1)|type=="number" and .>=1 and floor==.) end) and
     (.autonomy as $a|["supervised","guarded","autonomous"]|index($a)!=null) and (.gates|type=="object" and (keys|sort)==(["DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER"]|sort)) and
     all(.gates|to_entries[];.value|type=="object" and ((keys-["status","evidence_ids"])|length==0) and (.status as $x|["PENDING","PASSED","FAILED","NOT_APPLICABLE"]|index($x)!=null) and (.evidence_ids|type=="array" and length==(unique|length) and all(.[];type=="string" and length>0))) and .gates.REVIEW.status!="NOT_APPLICABLE"' "$1" >/dev/null
+}
+
+# Waiting for a person does not use up the wall-clock budget. When a run
+# leaves RUNNING, paused_epoch records the moment; when it runs again,
+# started_epoch moves forward by the time spent waiting. Apply this filter to
+# every new state with the previous state as $old and the current epoch as $e.
+LOOP_PAUSE_ACCOUNTING_JQ='
+  if ($old.run_status=="RUNNING") and (.run_status!="RUNNING") and ((.started_epoch//0)>0) and (has("paused_epoch")|not) then .paused_epoch=$e
+  elif (.run_status=="RUNNING") and has("paused_epoch") then .started_epoch=((.started_epoch//0)+([($e-.paused_epoch),0]|max))|del(.paused_epoch)
+  else . end'
+
+# Seconds of wall clock a run has used, excluding time spent waiting.
+loop_elapsed_seconds() { # state-file
+  jq -r --argjson e "$(date +%s)" '((.paused_epoch // $e) - (.started_epoch // 0))' "$1"
+}
+
+# Rewrite a new state file ($1) in place, applying pause accounting against the
+# previous state file ($2).
+loop_apply_pause_accounting() { # new-state old-state
+  local tmp
+  tmp=$(mktemp "$(dirname "$1")/.pause.XXXXXX")
+  jq --slurpfile old "$2" --argjson e "$(date +%s)" "\$old[0] as \$old | $LOOP_PAUSE_ACCOUNTING_JQ" "$1" > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$1"
 }
 
 loop_stat_mode(){

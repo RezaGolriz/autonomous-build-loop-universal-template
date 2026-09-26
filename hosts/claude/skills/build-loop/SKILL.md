@@ -45,6 +45,12 @@ DISTRIBUTION_CHANGED. Call loop_rebind with a negative control, then
 loop_request_approval and hand the link to the human, then loop_activate. The
 active adapter, workflow, run state and work items stay unchanged.
 
+A cancelled and handed-over work item can be created again with loop_task under
+the same id; its old records are archived and it needs a new authorization.
+Time spent waiting for a person does not count against max_wall_seconds.
+loop_configure accepts models per phase (for example default sonnet, REVIEW
+opus); keep the independent review on the strongest model.
+
 Call loop_check for a read-only situation report; handover_ready means there is
 something for the human to look at, not that the work succeeded. Queue work with
 loop_backlog_add, loop_backlog_list, and loop_backlog_remove. loop_accept,

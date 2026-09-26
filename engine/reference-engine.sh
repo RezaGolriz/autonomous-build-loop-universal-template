@@ -123,6 +123,7 @@ mark_cap_blocked(){
   cap_tmp=$(mktemp "$(dirname "$state")/.state.XXXXXX")
   jq --arg reason "$cap_reason" --arg action "$cap_action" --arg at "$(now)" \
     '.run_status="BLOCKED"|.last_result=("blocked: "+$reason)|.next_action=$action|.updated_at=$at' "$state" > "$cap_tmp"
+  loop_apply_pause_accounting "$cap_tmp" "$state" || { rm -f "$cap_tmp"; die 'capped state update failed'; }
   validate_state "$cap_tmp" || { rm -f "$cap_tmp"; die 'resulting capped state invalid'; }
   chmod --reference="$state" "$cap_tmp" 2>/dev/null || :
   mv "$cap_tmp" "$state"
@@ -147,7 +148,7 @@ if [ "$mode" = transition ]; then
   [ "$(jq -r .round "$state")" -lt "$(jq -r .max_rounds "$state")" ]||mark_cap_blocked 'round cap reached'
   [ "$(jq -r .gate_failures_here "$state")" -lt "$(jq -r .max_gate_failures "$state")" ]||mark_cap_blocked 'retry cap reached'
   started=$(jq -r .started_epoch "$state"); [ "$started" -gt 0 ]||mark_cap_blocked 'running state has no start time'
-  [ $(( $(date +%s)-started )) -le "$(jq -r .max_wall_seconds "$state")" ]||mark_cap_blocked 'wall clock cap reached'
+  [ "$(loop_elapsed_seconds "$state")" -le "$(jq -r .max_wall_seconds "$state")" ]||mark_cap_blocked 'wall clock cap reached'
   work=$(jq -r .work_item_id "$state"); revision=$(git -C "$root" rev-parse HEAD 2>/dev/null||echo unversioned); types='[]'; allpass=1
   for id in "${refs[@]}"; do f="$evidence_dir/$id.json"; [ -f "$f" ]&&validate_evidence "$f"&&validate_log_binding "$f" "$evidence_dir"||die "invalid transition evidence: $id"; jq -e --arg id "$id" --arg w "$work" --arg p "$current" --arg rev "$revision" '.evidence_id==$id and .work_item_id==$w and .phase==$p and .revision==$rev' "$f" >/dev/null||die "stale transition evidence: $id"; [ "$(jq -r .result "$f")" = PASSED ]||allpass=0; t=$(jq -r .evidence_type "$f"); types=$(jq -c --arg t "$t" '.+[$t]|unique'<<<"$types"); done
   case "$current" in
@@ -161,6 +162,7 @@ if [ "$mode" = transition ]; then
   else [ -n "$defect_class" ]||die 'failed gate requires defect class'; jq -e --arg f "$current" --arg t "$to" --arg d "$defect_class" '.rework_transitions|any(.from==$f and .to==$t and .defect_class==$d)' "$workflow" >/dev/null||die 'illegal rework transition'; gate=FAILED; failures=$(( $(jq -r .gate_failures_here "$state")+1 )); status=RUNNING; [ "$failures" -lt "$(jq -r .max_gate_failures "$state")" ]||status=BLOCKED; fi
   [ "$to" != HANDOVER ]||status=WAITING_FOR_HUMAN; idsjson=$(printf '%s\n' "${refs[@]}"|jq -Rsc 'split("\n")|map(select(length>0))'); tmp=$(mktemp "$(dirname "$state")/.state.XXXXXX")
   jq --arg phase "$to" --arg gate "$gate" --arg status "$status" --arg now "$(now)" --argjson failures "$failures" --argjson ids "$idsjson" '.gates[.phase]={status:$gate,evidence_ids:$ids}|.phase=$phase|.run_status=$status|.round+=1|.gate_failures_here=$failures|.last_result=("gate "+$gate)|.next_action=(if $status=="BLOCKED" then "raise max_gate_failures or cancel the run" else "continue "+$phase end)|.updated_at=$now' "$state" > "$tmp"
+  loop_apply_pause_accounting "$tmp" "$state" || { rm -f "$tmp"; die 'state update failed'; }
   validate_state "$tmp"||{ rm -f "$tmp"; die 'resulting state invalid'; }; chmod --reference="$state" "$tmp" 2>/dev/null||:; mv "$tmp" "$state"
   [ "$status" != BLOCKED ] || append_cap_blocker 'retry cap reached'
   trap - EXIT INT TERM; unlock_workspace; exit
