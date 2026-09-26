@@ -241,6 +241,13 @@ it twice, and re-checks the live item under the lock that does the work; anythin
 that moved in the meantime is refused with `CONFIRMATION_STALE` and the request
 is discarded. Give that link to the person; never open it yourself.
 
+**The control page is the recommended place to decide.** Run
+`build-loop serve --root <project>` once (or let a chat call `loop_serve`). While
+it runs, every `confirmation_url` points to it and the waiting request shows up
+in its Decisions panel. It uses exactly the frozen request, the typed word and
+the signed receipt described here. Without it, each request gets its own
+short-lived page. See [The control page](DASHBOARD.md#the-control-page).
+
 **The assurance, honestly.** Both routes record `local-user-action`: somebody
 with access to this machine typed the word. The confirmation page is served on
 loopback, so an agent that already has shell access on the same computer could in
@@ -266,6 +273,25 @@ and both dashboards show the same error. The default is
 `tty-or-local-page`. `status`, `check` and both dashboards show which mode is in
 force. Its schema is
 [spec/schemas/confirmation-policy.schema.json](../spec/schemas/confirmation-policy.schema.json).
+
+### Confirming from your phone
+
+Set `confirmation_page` in `.loop/control/policy.json` (the fields are explained
+once, in [the policy file](CONFIGURATION.md#the-policy-file-who-may-decide-and-from-where)),
+start the control page, and open its link on your phone inside your home network
+or VPN (see [The control page](DASHBOARD.md#the-control-page)). One bookmark then
+covers every decision. The one-request pages use the same setting, so their
+links, for example `http://192.0.2.10:8765/confirm?token=…` and the setup
+approval page's `…/review?token=…`, open on the phone too.
+
+The server answers only requests whose `Host` is the advertised address or
+`127.0.0.1`, and records a decision only when the form's `Origin` is that same
+address. **Security is exactly what it was:** a secret in the link, a word the
+person types, and the frozen decision. What changes is who can reach the page:
+anyone who can reach that address and has the link can act on it. The page is
+plain HTTP, so keep it inside a private network or a VPN, never on a public
+interface or behind port forwarding. If that is too much, leave
+`confirmation_page` out or use `tty-only`.
 
 `accept` is the other end of that lifecycle. It requires a run that is waiting
 for a human with a passed HANDOVER gate, and it refuses while a job is still

@@ -119,6 +119,88 @@ In the Bash orchestrator the same bounds have different names:
 executes up to twelve nodes of the same work item. See
 [the shell guide](SHELL-ORCHESTRATOR.md).
 
+### Who does the node work: a separate CLI process or this chat
+
+This is a separate choice from the four loop kinds and from step or bounded
+mode. Any loop kind can use either option. A *node* is one step of the
+workflow, for example one EXECUTE slice or one REVIEW.
+
+```mermaid
+flowchart LR
+    E[Engine prepares<br/>the node brief] --> O{Who does it?}
+    O -->|host codex or claude| C[A new Codex or<br/>Claude CLI process]
+    O -->|host chat| S[A fresh sub-agent<br/>started by this chat]
+    C --> R[Engine checks the result:<br/>tests, changed files,<br/>review challenge]
+    S --> R
+```
+
+**Option 1: a separate CLI process** (`host` `codex` or `claude`). The job
+starts the Codex or Claude command-line tool for each node. The reviewer starts
+in its own new process and never sees the builder's conversation. This is the
+default.
+
+**Option 2: inside this chat** (`host` `chat`). The chat you are talking to
+does each node with its own helper agent. First you choose who reviews:
+`review_host` `claude` or `codex` (a separate CLI process) or `chat` (this same
+chat). Nothing is chosen for you: with `host` `chat` and no `review_host`,
+`chat_next` refuses with `CHAT_REVIEW_HOST_REQUIRED` and lists the three
+options. Then:
+
+1. The chat calls `chat_next` (`loop_chat_next`). It starts or continues the run
+   for exactly one node, through the same checks as `run`, and returns
+   `node_id`, `attempt_id`, `phase`, a readable `label` and a `brief`.
+   `node_id` is a short fixed name for the node (`n-` and 12 hex digits);
+   `attempt_id` is new every time the loop starts waiting for that node, for
+   example again after a timeout or a resume.
+2. The chat starts a **fresh sub-agent** and gives it only `brief.prompt` —
+   never the conversation or its own notes.
+3. The sub-agent does the work and returns one JSON answer.
+4. The chat passes that answer, unchanged, to `chat_submit`
+   (`loop_chat_submit`) together with `node_id` and `attempt_id`. Each attempt
+   accepts exactly one answer. An answer for an older attempt is refused as
+   `CHAT_NODE_STALE`; it can never be taken for a newer one.
+5. `chat_submit` reports `accepted: true` only after the waiting node actually
+   took the answer. If the node ended first, the answer is withdrawn and the
+   call returns `CHAT_NODE_STALE`. Otherwise the engine checks it and returns
+   the gate result. The chat repeats from step 1 until the next action is a
+   human step.
+
+The handover files live in `.loop/scheduler/chat`. That folder is private to
+you (mode 0700), and the loop refuses it when it, or a folder above it inside
+`.loop`, is a symbolic link.
+
+**The referee does not change.** In both options the engine runs the tests,
+checks every changed file against the allowed paths, checks the review
+challenge, and decides what happens next. Every node writes which tool did it
+to `.loop/evidence/<run_id>/provenance.json`. A chat node that gets no answer
+before its timeout (`CHAT_PROVIDER_TIMEOUT_SECONDS`, default one hour) blocks;
+it never passes.
+
+**The honest limit: review independence.** If this same chat also does the
+REVIEW node (`review_host` `chat`, chosen by you), the review is **not
+independently isolated**: the chat that built the work also chose how it was
+reviewed. The loop still allows it, and says it plainly everywhere: `status` and
+`check` carry `review_isolated: false` and a `review_warning`; the dashboard says
+"Execution: chat-hosted (review not independently isolated)"; the handover notes
+and the frozen accept decision (on the control page, the confirmation page and
+the terminal prompt) say "Review was not independently isolated (same chat)",
+so you accept knowing it. To keep the review independent, set `review_host` to
+the other tool when you configure:
+
+```json
+{ "host": "chat", "review_host": "codex" }
+```
+
+Use `codex` from a Claude chat and `claude` from a Codex chat. The REVIEW node
+then runs in that tool's own CLI process, and the dashboard says
+"Execution: chat-hosted · review: codex".
+
+**When to prefer the CLI option.** Choose the separate CLI process for long
+bounded runs, for scheduled runs with `tick` (nobody is in a chat to answer
+`chat_next`), and whenever a fully independent review matters most. Choose the
+chat option when you want to watch each step in the conversation and do not
+want a separate CLI installed and signed in.
+
 ## Work kinds
 
 `work_kind` says what kind of work item this is. Pass it to `prepare` for the
@@ -214,7 +296,8 @@ Only two routes complete `accept`, `authorize`, `promote` or `release`:
    thrown away.
 
 An assistant must give that link to the person and never open or submit it
-itself. If the page is closed after the word was typed but before the operation
+itself. The person may also open it on their phone inside a private network or
+VPN (see [The control page](DASHBOARD.md#the-control-page)). If the page is closed after the word was typed but before the operation
 ran, the receipt it left behind is settled by the next `accept`, `authorize`,
 `promote`, `release` or `tick` call.
 
@@ -381,6 +464,8 @@ stands for the absolute path to your target-project folder.
 | Throw a proposal away | "Discard that proposal." | `build-loop discard --root … --input '{"proposal_id":"P-…"}'` |
 | Accept a finished run | "I have read the handover. Accept it with this note: …" — then open the confirmation link it returns | `build-loop accept --root …` then type `ACCEPT` |
 | See everything at once | "Show me the build-loop dashboard." | `build-loop dashboard --root … --json` |
+| Approve from my phone | "Start the control page and give me its link." — open it on your phone inside your home network or VPN and type the word in its Decisions panel (set `confirmation_page` first; see [The control page](DASHBOARD.md#the-control-page)) | `build-loop serve --root …` (prints a single-use link; lasting link at a terminal: `--show-link`; new key: `--rotate`; end it: `--stop`) |
+| Run the loop inside this chat | "Configure build-loop with host chat and review_host codex, then do the next node with a fresh sub-agent." — the chat calls `loop_chat_next`, hands the brief to a fresh sub-agent and passes its answer to `loop_chat_submit` (see [Who does the node work](#who-does-the-node-work-a-separate-cli-process-or-this-chat)) | `build-loop configure --root … --input '{"host":"chat","review_host":"codex"}'`, then `build-loop chat_next --root …` and `build-loop chat_submit --root … --input '{"node_id":"…","attempt_id":"…","result":{…}}'` |
 
 Keep user-facing prompts in ordinary language. Describe the work plainly; the
 mode fields carry the control settings.

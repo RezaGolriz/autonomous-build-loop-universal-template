@@ -30,6 +30,7 @@ import {
 } from './backlog.mjs';
 import { promote, proposalFingerprint } from './scout.mjs';
 import { holdSubject, readHold, releaseHold } from './hold.mjs';
+import { REVIEW_NOT_ISOLATED, recordedReview } from './chat.mjs';
 import { LOCAL_USER_ACTION, discardPendingConfirmations, humanOperations, requestConfirmation, settleConfirmations } from './confirm.mjs';
 
 const TTY_ONLY_DISCARDED = 'this project now accepts human decisions only as a word typed at an interactive terminal; the pending page request was thrown away';
@@ -116,6 +117,9 @@ async function freezeDecision(root, operation, itemId, args) {
     const subject = await acceptanceSubject(loop);
     if (itemId && subject.work_item_id !== itemId) throw new ControlError('CONFIRMATION_STALE', 'the run changed while the acceptance was being prepared');
     const { confirm, ...rest } = args;
+    // A review done by the chat that built the change is said plainly in the
+    // frozen decision, so the person accepts knowing it.
+    const review = await recordedReview(root, subject.work_item_id).catch(() => null);
     return {
       decision: { kind: 'accept', subject, args: rest },
       summary: [
@@ -123,6 +127,7 @@ async function freezeDecision(root, operation, itemId, args) {
         line('Work item', subject.work_item_id),
         line('Round', subject.round),
         line('HANDOVER evidence', subject.handover_evidence_ids.length ? subject.handover_evidence_ids : 'none recorded'),
+        ...(review && !review.review_isolated ? [line('Review independence', `${REVIEW_NOT_ISOLATED}. The REVIEW node was done by the chat that built the change, not by a separate reviewer.`)] : []),
         ...(rest.note ? [line('Note', rest.note)] : []),
         line('Assurance', `${LOCAL_USER_ACTION} — a person acting on this machine; it is not proof of who`),
       ],

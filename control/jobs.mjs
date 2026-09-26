@@ -14,6 +14,7 @@ import { authorizationExpired, backlogSummary, inboxCount, readAuthorization } f
 import { assertNotHeld, holdSummary } from './hold.mjs';
 import { writeNextSteps } from './notes.mjs';
 import { MODEL_KEYS, MODEL_NAME_PATTERN } from './schemas.mjs';
+import { abandonWaitingNode, currentExecution, reviewIndependence } from './chat.mjs';
 
 const orchestrator = path.join(bundleRoot, 'engine', 'orchestrator.sh');
 const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'worker.mjs');
@@ -36,7 +37,7 @@ function builtInAuthCheck(host, cliPath, trustedBundledProvider) {
 }
 
 async function authenticationState(root, host, installed, check, trusted) {
-  if (host === 'mock') return true;
+  if (host === 'mock' || host === 'chat') return true;
   if (!installed || !check || !trusted) return 'unknown';
   try { const result = await runBounded(check.argv, root, check.timeout_seconds, authEnvironment); return result.exit_code === check.expected_exit_code; }
   catch { return false; }
@@ -46,7 +47,7 @@ async function authenticationState(root, host, installed, check, trusted) {
 // CLI path and the per-phase models travel in a generated wrapper instead.
 async function wrapProvider(control, role, host, providerPath, cliPath, enabled, models = null) {
   const bin = enabled && cliPath; const hasModels = models && Object.keys(models).length > 0;
-  if (host === 'mock' || (!bin && !hasModels)) return providerPath;
+  if (host === 'mock' || host === 'chat' || (!bin && !hasModels)) return providerPath;
   const wrapper = path.join(control, 'providers', `${role}-${host}.sh`); const prefix = host === 'claude' ? 'CLAUDE' : 'CODEX';
   const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
   const exports = [];
@@ -75,26 +76,26 @@ async function configureHostUnlocked(root, args, loop, control) {
     for (const [key, model] of Object.entries(args.models)) if (typeof model !== 'string' || !new RegExp(MODEL_NAME_PATTERN).test(model)) throw new ControlError('INVALID_INPUT', `models.${key} is not a valid model name`);
   }
   const models = args.models && Object.keys(args.models).length ? args.models : null;
-  if (!['codex', 'claude', 'mock'].includes(args.host)) throw new ControlError('INVALID_INPUT', 'host must be codex, claude, or mock');
+  if (!['codex', 'claude', 'mock', 'chat'].includes(args.host)) throw new ControlError('INVALID_INPUT', 'host must be codex, claude, mock, or chat');
   if (args.provider_path && !path.isAbsolute(args.provider_path)) throw new ControlError('INVALID_INPUT', 'provider_path must be absolute');
   if (args.cli_path && !path.isAbsolute(args.cli_path)) throw new ControlError('INVALID_INPUT', 'cli_path must be absolute');
-  if (args.review_host && !['codex', 'claude', 'mock'].includes(args.review_host)) throw new ControlError('INVALID_INPUT', 'review_host is invalid');
+  if (args.review_host && !['codex', 'claude', 'mock', 'chat'].includes(args.review_host)) throw new ControlError('INVALID_INPUT', 'review_host is invalid');
   if (args.review_provider_path && !path.isAbsolute(args.review_provider_path)) throw new ControlError('INVALID_INPUT', 'review_provider_path must be absolute');
   if (args.review_cli_path && !path.isAbsolute(args.review_cli_path)) throw new ControlError('INVALID_INPUT', 'review_cli_path must be absolute');
   const reviewHost = args.review_host || args.host;
   const bundledProviderPath = path.join(bundleRoot, 'hosts', args.host, 'provider.sh'); const trustedBundledProvider = !args.provider_path || args.provider_path === bundledProviderPath;
   const bundledReviewProviderPath = path.join(bundleRoot, 'hosts', reviewHost, 'provider.sh'); const trustedBundledReviewProvider = !args.review_provider_path || args.review_provider_path === bundledReviewProviderPath;
   const rawProviderPath = args.provider_path || bundledProviderPath; const rawReviewProviderPath = args.review_provider_path || bundledReviewProviderPath;
-  const cliPath = args.host === 'mock' ? null : (args.cli_path || (trustedBundledProvider ? await commandPath(args.host) : null));
-  const reviewCliPath = reviewHost === 'mock' ? null : (args.review_cli_path || (trustedBundledReviewProvider ? (reviewHost === args.host && cliPath ? cliPath : await commandPath(reviewHost)) : null));
+  const cliPath = ['mock', 'chat'].includes(args.host) ? null : (args.cli_path || (trustedBundledProvider ? await commandPath(args.host) : null));
+  const reviewCliPath = ['mock', 'chat'].includes(reviewHost) ? null : (args.review_cli_path || (trustedBundledReviewProvider ? (reviewHost === args.host && cliPath ? cliPath : await commandPath(reviewHost)) : null));
   const providerPath = await wrapProvider(control, 'primary', args.host, rawProviderPath, cliPath, Boolean(args.cli_path), models);
   const reviewProviderPath = await wrapProvider(control, 'review', reviewHost, rawReviewProviderPath, reviewCliPath, Boolean(args.review_cli_path), models);
   const authCheck = builtInAuthCheck(args.host, cliPath, trustedBundledProvider && !args.cli_path);
   const reviewAuthCheck = builtInAuthCheck(reviewHost, reviewCliPath, trustedBundledReviewProvider && !args.review_cli_path);
-  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, ...(models ? { models } : {}), updated_at: now() };
+  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, review_host_chosen: Boolean(args.review_host), ...(models ? { models } : {}), updated_at: now() };
   config.host_signature = await signHostConfiguration(root, config);
   await atomicJson(path.join(loop, 'host.local.json'), config);
-  return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check), models: config.models ?? null };
+  return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, review_host_chosen: config.review_host_chosen, ...(config.host === 'chat' && !config.review_host_chosen ? { next: 'Choose who reviews before chat_next can start: configure again with review_host chat (this same chat, not independently isolated), claude or codex.' } : {}), ...(config.review_host === 'chat' ? { review_isolated: false, warning: 'Review was not independently isolated (same chat): the REVIEW node is done by the chat that built the change.' } : {}), auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check), models: config.models ?? null };
 }
 
 export async function doctor(root) {
@@ -111,8 +112,8 @@ export async function doctor(root) {
       const config = await readJson(configFile, 'host.local.json');
       await verifyHostConfiguration(root, config);
       const primaryWrapperInstalled = await executable(config.provider_path); const reviewWrapperInstalled = await executable(config.review_provider_path);
-      const primaryCli = config.host === 'mock' ? config.provider_path : (config.cli_path || config.host);
-      const reviewCli = config.review_host === 'mock' ? config.review_provider_path : (config.review_cli_path || config.review_host);
+      const primaryCli = ['mock', 'chat'].includes(config.host) ? config.provider_path : (config.cli_path || config.host);
+      const reviewCli = ['mock', 'chat'].includes(config.review_host) ? config.review_provider_path : (config.review_cli_path || config.review_host);
       const primaryCliPath = await commandPath(primaryCli); const reviewCliPath = await commandPath(reviewCli);
       const primaryInstalled = primaryWrapperInstalled && Boolean(primaryCliPath); const reviewInstalled = reviewWrapperInstalled && Boolean(reviewCliPath);
       const safePrimaryCheck = builtInAuthCheck(config.host, primaryCliPath, config.provider_path === path.join(bundleRoot, 'hosts', config.host, 'provider.sh') && config.cli_path === primaryCliPath);
@@ -186,7 +187,7 @@ export async function createTask(root, args, channel = 'mcp-user') {
       const files = await fs.readdir(path.join(loop, 'work-items')); const nums = files.map((name) => /^WI-(\d+)\.md$/.exec(name)?.[1]).filter(Boolean).map(Number);
       id = `WI-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
     }
-    stringValue(id, 'work_item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/ }); const workPath = path.join(loop, 'work-items', `${id}.md`);
+    stringValue(id, 'work_item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/ }); const workPath = path.join(loop, 'work-items', `${id}.md`);
     if (await exists(workPath)) await archiveCancelledItem(loop, control, id, workPath);
     await atomicText(workPath, renderWorkItem(id, args));
     const next = { ...state, work_item_id: id, phase: 'DEFINE', run_status: 'PAUSED', step: 'task-prepared', round: 0, gate_failures_here: 0, started_epoch: 0, gates: blankGates(), last_result: 'New bounded work item prepared.', next_action: 'Review the work item, then start.', updated_at: now() };
@@ -197,7 +198,7 @@ export async function createTask(root, args, channel = 'mcp-user') {
 }
 
 async function readJob(root, id) { return readJson(path.join(root, '.loop', 'control', 'jobs', `${id}.json`), 'job'); }
-async function activeJob(root) {
+export async function activeJob(root) {
   const file = path.join(root, '.loop', 'control', 'current-job.json'); if (!await exists(file)) return null;
   const current = await readJson(file, 'current job'); return readJob(root, current.job_id).catch(() => null);
 }
@@ -506,6 +507,9 @@ export async function setIntent(root, desired) {
       const currentJob = await readJob(root, job.job_id); if (!['QUEUED', 'RUNNING', 'STOPPING'].includes(currentJob.status)) throw new ControlError('NOT_RUNNING', 'managed job reached a terminal state before the stop request was recorded');
       const runtime = await readRuntimeControl(root, job); runtime.desired_status = desired; runtime.requested_at = now(); await writeRuntimeControl(root, job, runtime);
     } finally { await release(); }
+    // A chat-hosted node that waits for a result would otherwise hold the job
+    // until its timeout; it ends at once as BLOCKED, never as passed.
+    await abandonWaitingNode(root).catch(() => false);
     return { ok: true, deferred_until_node_boundary: job.status !== 'QUEUED', desired_status: desired, observed_status: 'STOPPING', job_id: job.job_id };
   }
   if (await exists(path.join(control, 'job.lock'))) throw new ControlError('JOB_STARTING', 'a fenced managed job is starting; retry pause or cancel');
@@ -581,8 +585,9 @@ export async function status(root, args = {}) {
   const policy = await confirmationPolicy(root).catch((error) => ({ human_confirmation: 'tty-only', source: 'invalid-policy', error: { code: 'INVALID_POLICY', message: error.message } }));
   return {
     ok: true, initialized: Boolean(state), state, job, open_blockers: blockers, activation, authorization, backlog, inbox,
+    ...await (async () => { const execution = await currentExecution(root).catch(() => null); const independence = await reviewIndependence(root, state?.work_item_id, execution).catch(() => ({ review_isolated: null, review_warning: null })); return { host: execution?.host ?? null, execution, review_isolated: independence.review_isolated, ...(independence.review_warning ? { review_warning: independence.review_warning } : {}) }; })(),
     hold: await holdSummary(root).catch(() => null),
-    policy: { mode: policy.human_confirmation, source: policy.source, error: policy.error ?? null },
+    policy: { mode: policy.human_confirmation, source: policy.source, error: policy.error ?? null, ...(policy.confirmation_page ? { confirmation_page: policy.confirmation_page } : {}) },
     human_confirmation: {
       mode: policy.human_confirmation,
       source: policy.source,

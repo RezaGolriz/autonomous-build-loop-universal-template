@@ -21,7 +21,7 @@
     "exit_code": {"type": ["integer", "null"]},
     "last_error": {"type": ["object", "null"]},
     "lock_id": {"type": "string", "minLength": 32},
-    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "work_item_id": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "phase_at_launch": {"enum": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
     "state_at_launch_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "activation_digest": {"type": "string", "minLength": 1},

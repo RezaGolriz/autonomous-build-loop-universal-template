@@ -12,6 +12,17 @@
       "enum": ["tty-or-local-page", "tty-only"],
       "default": "tty-or-local-page",
       "description": "tty-or-local-page: a word typed at an interactive terminal, or a word typed on the local confirmation page. tty-only: the terminal and nothing else; chat tool calls and --input are refused with CONFIRMATION_TTY_ONLY."
+    },
+    "confirmation_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listen"],
+      "description": "Where the confirmation page and the setup approval page listen, so they can be opened from a phone inside a private network or VPN. Absent: 127.0.0.1, a random port, a localhost link. Plain HTTP: never expose it on a public interface. A listen address that is not loopback (127.0.0.0/8 or ::1) requires advertise.",
+      "properties": {
+        "listen": {"type": "string", "anyOf": [{"format": "ipv4"}, {"format": "ipv6"}], "description": "IP literal the servers bind to, for example 127.0.0.1, 0.0.0.0 or 192.0.2.10. Never a host name."},
+        "advertise": {"type": "string", "maxLength": 253, "anyOf": [{"format": "ipv4"}, {"format": "ipv6"}, {"format": "hostname"}], "description": "Host name or IP the link names and the Origin check accepts, without a scheme or a port. Defaults to listen when listen is loopback."},
+        "port": {"type": "integer", "minimum": 1024, "maximum": 65535, "description": "Fixed port. Omit it for a random port. With a fixed port only one page can be open at a time."}
+      }
     }
   }
 }

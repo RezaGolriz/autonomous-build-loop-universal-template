@@ -56,7 +56,7 @@ expiring in 8 hours, stopping at the first failed gate. Do not start it.
 
 *(calls `loop_authorize`. The tool call does **not** authorize anything by
 itself: it comes back with a confirmation link. The assistant hands you that
-link, you open it in your browser, and the page shows the exact record that would
+link, you open it (also from your phone when the control page is set up), and the page shows the exact record that would
 be written — the paths, the 20 rounds, the 1800 seconds, the expiry. You type
 `AUTHORIZE` into the field and press the button. Only then is that record
 written, with the channel `local-http-user` and the assurance

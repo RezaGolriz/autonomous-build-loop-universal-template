@@ -1,59 +1,116 @@
-# HTML dashboard
+# Control page and dashboard
 
+## The control page
 
-## Open it from chat
+The control page is the easiest way to watch a project and to make the human
+decisions. It is one small web page on your own computer that keeps running.
+It shows the project's state, plus a **Decisions** panel where you accept a run,
+authorize an item, promote a proposal, or put the project on hold and release
+it again.
 
-> Show the build-loop dashboard for this project.
-
-The agent calls `loop_dashboard` (MCP) or the `dashboard` CLI operation and
-returns `dashboard_url`. Open that local link in your browser. It expires after
-30 minutes; request a new link after expiry. Reload the page to read current
-state. There is no automatic polling.
+Start it once:
 
 ```bash
-node bin/build-loop.mjs dashboard --root /absolute/target --json
+build-loop serve --root /absolute/project
 ```
 
-This works before setup, for a paused candidate, and for an active loop. The
-page shows the project, work kind, phase gates, current recorded job, the
-authorization of the current item, the backlog, the scout inbox, the last tick
-and scout, the next-steps note, blockers, evidence and work item. It
-distinguishes a candidate from active configuration.
-Job status is a recorded observation, not proof that the process is still alive
-or the work item has passed all gates. This page does not verify the signed
-activation binding; use `status` for that result.
+Every start prints a **single-use link** such as
+`http://127.0.0.1:43127/?b=…`. It opens the page once, within 10 minutes. Ask
+again for a fresh one whenever you need it; starting again returns the same page
+instead of a second one. Other commands:
 
-The work-kind and run-mode selectors prepare text to use in chat. They do not
-change an active work item or start a run. Continue in chat to prepare a concrete
-work item, review its scope, and use the normal approval and activation flow.
+```bash
+build-loop serve --root /absolute/project --show-link   # at a terminal only: print the lasting link (?k=…)
+build-loop serve --root /absolute/project --rotate      # new key; old links, sessions and unused single-use links stop working
+build-loop serve --root /absolute/project --stop        # end the page
+```
 
-The local server binds only to `127.0.0.1` and requires the capability embedded
-in its URL. It reads project state and opens no target command or approval form.
-Keep the URL private: it exposes the selected project's status and work-item
-text to anyone on the same machine who has the link. It serves only this page,
-not arbitrary project files.
+From chat, `loop_serve` starts the page or returns the running one, and
+`loop_dashboard` returns it too when the page is running or when
+`.loop/control/policy.json` sets `confirmation_page`. Both hand out single-use
+links only; a chat never receives the lasting key. Starting the page decides
+nothing: it changes nothing until a person types a word on it.
 
-The monitoring URL is separate from every `confirmation_url`: the setup approval
-link from `request-approval`, and the decision links that `accept`, `authorize`
-and `promote` return when they are called from anywhere other than an interactive
-terminal. The dashboard cannot approve setup and cannot make any of those
-decisions; it only shows what was recorded.
+**How the link works.** When you open a link, the page swaps it for a login
+cookie that lasts 12 hours and sends you on to `/`, so the link is no longer
+shown in the address bar. That redirect does **not** erase it from your
+browser history, and a proxy on the way may have logged it. This is why links
+given to a chat are single-use: once opened, or after 10 minutes, such a link
+is worthless. The lasting key lives in `.loop/scheduler/control-page.token`
+(only you can read it, and `.loop/` is never committed). `--show-link` prints
+its link only at an interactive terminal; treat that link like a password, and
+use `--rotate` if it may have been seen. Without the cookie every request is
+refused. The page keeps its port between restarts, so the lasting link keeps
+working as a bookmark.
 
-## Export a static HTML file with the shell renderer
+**The Decisions panel.** When a decision is waiting — because a chat tool asked
+for one, or because you pressed a button on the page — the panel shows exactly
+what will happen, frozen at the moment it was asked for. You type the word
+(`ACCEPT`, `AUTHORIZE`, `PROMOTE` or `RELEASE`) and press the button. Only then
+is it recorded, through the same signed receipt as the one-request confirmation
+page, with the channel `local-http-user`. When nothing is waiting, the panel
+offers: *Accept* (when a handover is ready), *Authorize* an item (scope, rounds,
+wall clock and expiry are filled in with the defaults), *Promote* a proposal,
+*Release* the hold, and *Hold*. Hold needs no word, because stopping is always
+safe. While the page runs, the confirmation links that chat tools return point
+to it, and the waiting request appears there.
 
-The dashboard is one HTML page that shows the state of a run at a glance.
-It is made by a script, from the files the loop writes, and it changes
+**Typing the word is not a result.** It records *your decision* — for example
+"this item may start" or "I accept this handover". It does not mean the run
+succeeded. Success is still a review verdict of `PASS` plus a passed VALIDATE
+gate, shown on the same page.
+
+### From your phone
+
+```mermaid
+flowchart LR
+    P[Your phone<br/>opens the link] --> N[Your private network<br/>home Wi-Fi, or a VPN<br/>such as WireGuard]
+    N --> C[Control page<br/>on your computer]
+    C --> T[You type<br/>the word]
+    T --> R[Build Loop checks it<br/>and records the decision]
+```
+
+1. Set `confirmation_page` in `.loop/control/policy.json`
+   (see [the policy file](CONFIGURATION.md#the-policy-file-who-may-decide-and-from-where)).
+2. Restart the page with `--stop` and then `serve`.
+3. Open the link on your phone. It now names the address you set, for example
+   `http://192.0.2.10:8765/?k=…`.
+
+The phone must be inside your private network: your home Wi‑Fi, or a VPN such
+as WireGuard or Tailscale. A VPN is one option, not a requirement. Build Loop
+checks the word and the frozen decision, then records it.
+
+**Safety, honestly.** The page is as safe as the local confirmation page, not
+more. Anyone inside your private network who has the link can act on it. So keep
+the network private, never expose the page to the internet or through port
+forwarding, and run `--rotate` if the link may have leaked. Every form also
+carries a hidden per-session value and must come from the page itself; at most
+ten decisions a minute are taken, and five wrong words lock the field for a
+minute. A decision recorded here means "somebody who could reach this page did
+it"; it is not proof of who. A project that wants the terminal and nothing else
+sets `human_confirmation` to `tty-only`, and the panel then says so and decides
 nothing.
 
-```bash
-./engine/render-dashboard.sh --root /path/to/project            # writes .loop/dashboard.html
-./engine/render-dashboard.sh --root /path/to/project --output /tmp/run.html
-./engine/render-dashboard.sh --root /path/to/project --output -  # prints the HTML
-```
+To keep the page running after a restart of the computer, install it as a
+service: see [Keep the control page running](CONFIGURATION.md#keep-the-control-page-running).
 
-Open the file in any browser. Run the script again whenever you want a fresh
-view; it executes no target commands. A render during a running job is a point-in-time
-view and may read records from adjacent updates.
+## Other ways to look at the state
+
+The control page is the recommended view. Two older views still work. All three
+read the same `.loop/` files.
+
+| View | How to get it | How long it works | Can you decide there? |
+|---|---|---|---|
+| Control page | `build-loop serve --root …` or `loop_serve` | While its server runs (a stable link) | Yes, by typing the word |
+| Short-lived read-only page | `loop_dashboard`, or `build-loop dashboard --root … --json`, when the control page is not running and no `confirmation_page` is set | 30 minutes, then ask for a new link | No, it only shows |
+| Static export | `./engine/render-dashboard.sh --root …` (writes `.loop/dashboard.html`; `--output FILE`, or `--output -` to print) | Never expires, but is a snapshot; run it again to refresh | No, it only shows |
+
+The read-only page listens only on `127.0.0.1` and needs the secret in its link.
+The static export runs no project command and never touches the network, so you
+can open it on any machine; it shows one project per file. Keep both private for
+the same reason as the control page: they show paths, work-item text and
+evidence. Neither can approve setup or make a decision. The page selectors for
+work kind and run mode only prepare text to paste into chat.
 
 ## Where the numbers come from
 
@@ -94,6 +151,13 @@ show the same banner.
 **Header.** The work item id, a coloured status badge, the current phase,
 `round/max_rounds`, `gate failures/max`, when the state was last updated,
 and when the page was generated.
+
+**Execution.** One line says how the run does its node work:
+"Execution: separate CLI process (codex) · review: claude", "Execution:
+chat-hosted · review: codex", or "Execution: chat-hosted (review not
+independently isolated)" when the same chat also reviews. See
+[Who does the node work](LOOP-MODES.md#who-does-the-node-work-a-separate-cli-process-or-this-chat).
+Job records on the page are observations, not proof that a gate passed.
 
 | Badge | Meaning | What to do |
 |---|---|---|
@@ -224,13 +288,3 @@ The page is a summary. The truth lives next to it:
 Every record carries the Git revision it was made at and a checksum of the
 logs it refers to. If someone edits a log afterwards, the referee rejects the
 record.
-
-## Static export limits
-
-- The page is static. Re-run the script to refresh; there is no live update.
-- It shows one project (one `--root`). For several projects, render several
-  pages.
-- It never runs a project command and never touches the network; you can
-  open it on any machine.
-- Text from the work item and the logs is shown as-is but escaped, so a
-  stray `<script>` in an agent's text cannot run in your browser.

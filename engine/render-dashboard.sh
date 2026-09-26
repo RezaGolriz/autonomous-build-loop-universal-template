@@ -63,6 +63,24 @@ fi
 printf '<h1>Work item %s</h1><div class="card meta">' "$(val '.work_item_id')"
 printf '<span class="badge %s">%s</span>' "$(printf %s "$status" | esc)" "$(printf %s "$status" | esc)"
 printf '<span>Phase: %s</span><span>Round: %s/%s</span><span>Gate failures: %s/%s</span><span>Updated: %s</span><span>Generated: %s UTC</span></div>\n' "$(val '.phase')" "$(val '.round')" "$(val '.max_rounds')" "$(val '.gate_failures_here')" "$(val '.max_gate_failures')" "$(val '.updated_at')" "$(printf %s "$generated" | esc)"
+# How the run executes: the bound copy of the current job, else the machine
+# configuration. Chat-hosted execution is named, and so is a review that is not
+# independently isolated.
+execution_config=""
+jobref="$loop/control/current-job.json"
+if [ -f "$jobref" ]; then
+  jid=$(jq -r '.job_id // ""' "$jobref" 2>/dev/null || true)
+  if [[ "$jid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ -f "$loop/control/jobs/$jid.json" ]; then
+    execution_config=$(jq -c '.bound_config // empty' "$loop/control/jobs/$jid.json" 2>/dev/null || true)
+  fi
+fi
+if [ -z "$execution_config" ] && [ -f "$loop/host.local.json" ]; then execution_config=$(jq -c '.' "$loop/host.local.json" 2>/dev/null || true); fi
+if [ -n "$execution_config" ]; then
+  execution_line=$(printf '%s' "$execution_config" | jq -r 'select(type=="object" and (.host|type)=="string") | (.review_host // .host) as $r |
+    if .host=="chat" then (if $r=="chat" then "Execution: chat-hosted (review not independently isolated)" else "Execution: chat-hosted · review: \($r)" end)
+    else "Execution: separate CLI process (\(.host)) · review: \($r)" + (if $r=="chat" then " (chat-hosted, not independently isolated)" else "" end) end' 2>/dev/null || true)
+  [ -z "$execution_line" ] || printf '<p class="card"><strong>%s</strong></p>\n' "$(printf %s "$execution_line" | esc)"
+fi
 printf '<section class="card"><h2>Phases</h2><div class="phases">'
 for p in $phases; do s=$(jq -r --arg p "$p" '.gates[$p].status // "PENDING"' "$state"); se=$(printf %s "$s"|esc); c=""; [ "$p" != "$current" ] || c=' current'; printf '<span class="pill %s%s">%s · %s</span>' "$se" "$c" "$p" "$se"; done
 printf '</div></section>\n<section class="card"><h2>Legal next steps</h2>'
@@ -99,16 +117,32 @@ cmode=tty-or-local-page; cerror=
 if [ -f "$loop/control/policy.json" ]; then
   cerror=$(jq -r '
     if type!="object" then ".loop/control/policy.json must be a JSON object"
-    elif ((keys - ["schema_version","human_confirmation"]) | length) > 0 then ".loop/control/policy.json has unknown field(s): " + ((keys - ["schema_version","human_confirmation"])|join(", "))
+    elif ((keys - ["schema_version","human_confirmation","confirmation_page"]) | length) > 0 then ".loop/control/policy.json has unknown field(s): " + ((keys - ["schema_version","human_confirmation","confirmation_page"])|join(", "))
     elif .schema_version != 1 then ".loop/control/policy.json must be a version 1 record"
     elif (has("human_confirmation") and ((.human_confirmation|type) != "string")) then ".loop/control/policy.json human_confirmation must be one of tty-or-local-page, tty-only; remove the key to use the default"
-    elif ((has("human_confirmation")|not) or (["tty-or-local-page","tty-only"]|index(.human_confirmation)!=null)) then ""
-    else ".loop/control/policy.json human_confirmation must be one of tty-or-local-page, tty-only" end' \
+    elif (has("human_confirmation") and ((.human_confirmation as $m | ["tty-or-local-page","tty-only"] | index($m)) == null)) then ".loop/control/policy.json human_confirmation must be one of tty-or-local-page, tty-only"
+    elif (has("confirmation_page")|not) then ""
+    else .confirmation_page as $p
+      # Mirrors confirmationPageProblem in control/common.mjs (IPv6 is checked
+      # by shape here; the control layer is authoritative).
+      | def ip: test("^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$") or (test(":") and test("^[0-9A-Fa-f:.]+$"));
+        if ($p|type) != "object" then ".loop/control/policy.json confirmation_page must be an object with listen, advertise and port"
+        elif (($p|keys) - ["listen","advertise","port"]|length) > 0 then ".loop/control/policy.json confirmation_page has unknown field(s): " + ((($p|keys) - ["listen","advertise","port"])|join(", "))
+        elif (($p.listen|type) != "string") or (($p.listen|ip)|not) then ".loop/control/policy.json confirmation_page.listen must be an IPv4 or IPv6 address"
+        elif ($p|has("advertise")) and ((($p.advertise|type) != "string") or (($p.advertise|length) > 253) or ((($p.advertise|ip) or ($p.advertise|test("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")))|not)) then ".loop/control/policy.json confirmation_page.advertise must be a host name or IP address without a scheme or a port"
+        elif (($p|has("advertise"))|not) and ((($p.listen|test("^127\\.")) or $p.listen == "::1")|not) then ".loop/control/policy.json confirmation_page.advertise is required when listen is not a loopback address"
+        elif ($p|has("port")) and ((($p.port|type) != "number") or ($p.port != ($p.port|floor)) or $p.port < 1024 or $p.port > 65535) then ".loop/control/policy.json confirmation_page.port must be an integer from 1024 to 65535"
+        else "" end
+    end' \
     "$loop/control/policy.json" 2>/dev/null || printf '.loop/control/policy.json cannot be read as a JSON object')
   if [ -n "$cerror" ]; then cmode=tty-only
   else cmode=$(jq -r '.human_confirmation // "tty-or-local-page"' "$loop/control/policy.json"); fi
 fi
 printf '<p class="note">Assurance local-user-action means a person acting on this machine typed the word, at the terminal or on the local confirmation page. It is not proof of who. Human confirmation mode: %s.</p>' "$(printf %s "$cmode" | esc)"
+if [ -z "$cerror" ] && [ "$cmode" != tty-only ] && [ -f "$loop/control/policy.json" ]; then
+  corigin=$(jq -r 'if .confirmation_page then .confirmation_page as $p | ($p.advertise // $p.listen) as $h | "http://" + (if ($h|test(":")) then "[" + $h + "]" else $h end) + ":" + (($p.port // "random-port")|tostring) else "" end' "$loop/control/policy.json" 2>/dev/null || :)
+  [ -z "$corigin" ] || printf '<p class="note">Confirmation page links point to %s, so they can be opened from a phone inside the private network or VPN. Anyone who can reach that address and has a link can act on it.</p>' "$(printf %s "$corigin" | esc)"
+fi
 [ -z "$cerror" ] || printf '<p class="note"><span class="flag">INVALID_POLICY</span> %s. Until a person repairs it this project decides nothing through the local page.</p>' "$(printf %s "$cerror" | esc)"
 printf '</section>\n<section class="card"><h2>Backlog</h2>'
 backlog="$loop/backlog.json"

@@ -1,12 +1,14 @@
 import { loopOptions, resolveRunArgs } from './loop-options.mjs';
 import { openDashboard } from './dashboard.mjs';
-import { ControlError, publicError, resolveRoot } from './common.mjs';
+import { ControlError, confirmationPolicy, publicError, resolveRoot } from './common.mjs';
+import { runningControlPage, serveControlPage } from './control-page.mjs';
 import { requestApproval as approvalRequest } from './approval.mjs';
 import { createDemo, inspectProject, prepareProject, prepareRebind } from './setup.mjs';
 import { answerBlocker, completeHandover, configureHost, createTask, doctor, launchActivation, launchJob, setIntent, status } from './jobs.mjs';
 import { backlogAdd, backlogList, backlogRemove, deauthorize } from './backlog.mjs';
 import { check } from './check.mjs';
 import { tick } from './tick.mjs';
+import { chatNext, chatSubmit } from './chat.mjs';
 import { discard, inboxList, scout } from './scout.mjs';
 import { humanDecision } from './human-ops.mjs';
 import { HELD_OPERATIONS, assertNotHeld, placeHold } from './hold.mjs';
@@ -41,7 +43,8 @@ export async function dispatch(root, operation, args = {}, context = {}) {
     if (HELD_OPERATIONS.includes(operation)) await assertNotHeld(root, humanChannel(context), operation);
     switch (operation) {
       case 'options': return loopOptions();
-      case 'dashboard': return await openDashboard(root);
+      case 'dashboard': return await dashboard(root);
+      case 'serve': return await serveControlPage(root);
       case 'inspect': return await inspectProject(root);
       case 'doctor': return await doctor(root);
       case 'demo': return await createDemo(root, args.kind);
@@ -56,6 +59,10 @@ export async function dispatch(root, operation, args = {}, context = {}) {
       case 'start': return await launchJob(root, 'start', checkedJobArgs(args), humanChannel(context));
       case 'run': return await launchJob(root, 'run', checkedJobArgs(args), humanChannel(context));
       case 'resume': return await launchJob(root, 'resume', checkedJobArgs(args), humanChannel(context));
+      // Chat-hosted execution: chat_next launches through launchJob exactly as
+      // run does, with the same channel, so it is refused wherever run is.
+      case 'chat_next': return await chatNext(root, args, humanChannel(context));
+      case 'chat_submit': return await chatSubmit(root, args, humanChannel(context));
       case 'status': return await status(root, args);
       case 'answer': return await answerBlocker(root, args);
       case 'pause': return await setIntent(root, 'PAUSED');
@@ -80,6 +87,17 @@ export async function dispatch(root, operation, args = {}, context = {}) {
       default: throw new Error(`unreachable operation ${operation}`);
     }
   } catch (error) { return publicError(error); }
+}
+
+// The dashboard is the control page when the project asks for one (policy
+// confirmation_page) or one is already running; otherwise the short-lived
+// read-only page, exactly as before.
+async function dashboard(root) {
+  const policy = await confirmationPolicy(root).catch(() => null);
+  if ((policy && !policy.error && policy.confirmation_page) || await runningControlPage(root).catch(() => null)) {
+    return serveControlPage(root);
+  }
+  return openDashboard(root);
 }
 
 function checkedJobArgs(args) {

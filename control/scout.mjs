@@ -25,7 +25,7 @@ const PROPOSAL_LIMIT = 5;
 const SCOUT_TIMEOUT_SECONDS = 900;
 const DEFAULT_ENVIRONMENT_NAMES = ['PATH', 'LANG', 'LC_ALL', 'TMPDIR'];
 const proposalIdPattern = /^P-\d{8}T\d{6}Z-\d{1,3}$/;
-const itemIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const itemIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const oneLine = (value) => String(value).replace(/[\r\n]+/g, ' ').trim();
 const quoteBlock = (value) => String(value).split(/\r?\n/).map((line) => `> ${line}`).join('\n');

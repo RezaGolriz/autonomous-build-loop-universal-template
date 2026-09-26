@@ -20,7 +20,10 @@ container, or host sandbox when running code you do not trust.
   account or an unrestricted agent controlling the same browser. It is served on
   loopback, so an agent with shell access on the same machine could in principle
   open the link and type the confirmation word; the recorded assurance is
-  `local-user-action` and nothing stronger. The agent host must enforce the
+  `local-user-action` and nothing stronger. When `confirmation_page` in that
+  policy file makes the page listen on a private network or VPN address, anyone
+  who can reach that address and has the link can act on it; the page is plain
+  HTTP and must never be exposed on a public interface. The agent host must enforce the
   human-interaction boundary. A project that needs a hard guarantee sets
   `human_confirmation` to `tty-only` in `.loop/control/policy.json`, written by
   hand; accept, authorize and promote are then refused from every transport

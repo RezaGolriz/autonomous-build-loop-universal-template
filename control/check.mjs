@@ -7,6 +7,7 @@ import path from 'node:path';
 import { assertControlPath, confirmationPolicy, exists, readJson } from './common.mjs';
 import { backlogSummary, inboxCount, readAuthorization } from './backlog.mjs';
 import { holdSummary } from './hold.mjs';
+import { currentExecution, reviewIndependence } from './chat.mjs';
 
 async function reviewVerdict(loop, state) {
   const ids = (state?.gates?.REVIEW?.evidence_ids ?? []).filter((id) => typeof id === 'string' && id.startsWith('review-'));
@@ -57,6 +58,8 @@ export async function check(root) {
   // permissive default: while it is broken the project is tty-only, and the one
   // glance this operation gives has to say so.
   const policy = await confirmationPolicy(root).catch((error) => ({ human_confirmation: 'tty-only', source: 'invalid-policy', error: { code: 'INVALID_POLICY', message: error.message } }));
+  const execution = await currentExecution(root).catch(() => null);
+  const independence = await reviewIndependence(root, state?.work_item_id, execution).catch(() => ({ review_isolated: null, review_warning: null }));
   return {
     ok: true,
     run_status: state?.run_status ?? null,
@@ -65,13 +68,17 @@ export async function check(root) {
     handover_ready: handoverReady,
     judge_verdict: verdict,
     gates: state?.gates ?? null,
+    host: execution?.host ?? null,
+    execution,
+    review_isolated: independence.review_isolated,
+    ...(independence.review_warning ? { review_warning: independence.review_warning } : {}),
     open_blockers: await openBlockers(loop),
     backlog: { ready: backlog.ready, paused: backlog.paused },
     inbox: await inboxCount(loop),
     hold,
     authorization: state ? await readAuthorization(loop, state.work_item_id).catch(() => null) : null,
     human_confirmation: policy.human_confirmation,
-    policy: { mode: policy.human_confirmation, source: policy.source, error: policy.error ?? null },
+    policy: { mode: policy.human_confirmation, source: policy.source, error: policy.error ?? null, ...(policy.confirmation_page ? { confirmation_page: policy.confirmation_page } : {}) },
     next_action: hold ? `This project is on hold: ${hold.reason || 'no reason recorded'}. A person releases it with the word RELEASE, at an interactive terminal or on the local confirmation page. Until then nothing automated starts, runs, resumes, ticks, prepares a task or scouts.` : nextAction(state, handoverReady, verdict),
     verified_success_requires: 'a REVIEW verdict of PASS together with a passed VALIDATE gate; handover_ready alone only means there is something to look at',
   };

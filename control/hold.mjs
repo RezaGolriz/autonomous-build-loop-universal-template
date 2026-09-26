@@ -28,7 +28,7 @@ export const holdFile = (control) => path.join(control, 'hold.json');
 // Operations that may not run while the project is on hold. Reading is always
 // allowed, and so is stopping: `cancel` and `handover` only stop work or write
 // down what happened, and a person needs them to wind a held project down.
-export const HELD_OPERATIONS = Object.freeze(['start', 'run', 'resume', 'tick', 'task', 'scout']);
+export const HELD_OPERATIONS = Object.freeze(['start', 'run', 'resume', 'tick', 'task', 'scout', 'chat_next', 'chat_submit']);
 
 // Only a word typed at a real terminal is a person by itself, exactly as in
 // control/jobs.mjs. Everything else is a transport an agent can call.
@@ -91,7 +91,7 @@ export async function assertNotHeld(root, channel, operation) {
 export async function placeHold(root, args = {}, channel = 'mcp-user') {
   const { control } = await assertControlPath(root);
   const reason = args.reason === undefined ? 'A person or an agent stopped this project.' : stringValue(args.reason, 'reason', { max: 4000 });
-  const itemId = args.item_id === undefined ? null : stringValue(args.item_id, 'item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/ });
+  const itemId = args.item_id === undefined ? null : stringValue(args.item_id, 'item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/ });
   await assertNoEngineLock(root);
   await fs.mkdir(control, { recursive: true });
   const existing = await readHold(root).catch(() => null);

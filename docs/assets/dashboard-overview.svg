@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1230" viewBox="0 0 1440 1230" role="img" aria-labelledby="title desc">
-  <title id="title">Annotated Build Loop dashboard</title>
-  <desc id="desc">A representative read-only Build Loop dashboard with numbered annotations for status, workflow gates, loop selection, current job, the authorization of the current item, the backlog, the scout inbox, the last tick and the next-steps memory, blockers, evidence, and the work item.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1384" viewBox="0 0 1440 1384" role="img" aria-labelledby="title desc">
+  <title id="title">Annotated Build Loop control page</title>
+  <desc id="desc">A representative Build Loop control page with numbered annotations for status, the Decisions panel where a person types the word, workflow gates, loop selection, current job and how it executes, the authorization of the current item, the backlog, the scout inbox, the last tick and the next-steps memory, blockers, evidence, and the work item.</desc>
   <defs>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
       <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#21364d" flood-opacity="0.13"/>
@@ -24,14 +24,14 @@
     </style>
   </defs>
 
-  <rect width="1440" height="1230" fill="#eef2f6"/>
-  <rect x="190" y="30" width="1060" height="1170" rx="18" fill="#eef2f6" filter="url(#shadow)"/>
+  <rect width="1440" height="1384" fill="#eef2f6"/>
+  <rect x="190" y="30" width="1060" height="1324" rx="18" fill="#eef2f6" filter="url(#shadow)"/>
 
   <g class="ui">
-    <text x="225" y="66" class="muted small" letter-spacing="1.3">UNIVERSAL BUILD LOOP · LOCAL DASHBOARD</text>
+    <text x="225" y="66" class="muted small" letter-spacing="1.3">UNIVERSAL BUILD LOOP · CONTROL PAGE</text>
     <text x="225" y="103" font-size="30" font-weight="720">example-api</text>
     <text x="225" y="127" class="muted small">/projects/example-api</text>
-    <text x="225" y="151" class="small">Read-only view · Updated now · <tspan fill="#205994" text-decoration="underline">Refresh status</tspan></text>
+    <text x="225" y="151" class="small">Stable link · Updated now · <tspan fill="#205994" text-decoration="underline">Refresh status</tspan></text>
 
     <rect class="card" x="215" y="172" width="1010" height="120" rx="14"/>
     <text x="245" y="205" class="label">Status</text>
@@ -41,82 +41,94 @@
     <text x="860" y="205" class="label">Round</text><text x="860" y="236" class="small">6 / 40</text>
     <text x="245" y="270" class="small">Answer the validation blocker in chat before resuming.</text>
 
-    <rect class="card" x="215" y="310" width="1010" height="136" rx="14"/>
-    <text x="245" y="344" font-size="19" font-weight="700">Workflow</text>
+    <rect class="card" x="215" y="310" width="1010" height="136" rx="14" style="stroke:#1f5f99;stroke-width:2"/>
+    <text x="245" y="344" font-size="19" font-weight="700">Decisions · 1 waiting for you</text>
+    <text x="245" y="372" class="small"><tspan font-weight="700">Authorize WI-002</tspan> · Order export as CSV · paths src/export/**, tests/** · 40 rounds · expires in 24 h</text>
+    <text x="245" y="410" class="small">Type <tspan font-weight="700">AUTHORIZE</tspan> to confirm</text>
+    <rect x="420" y="388" width="200" height="34" rx="6" fill="#fff" stroke="#899bad"/>
+    <text x="434" y="410" class="small muted">______</text>
+    <rect x="636" y="388" width="230" height="34" rx="6" fill="#1f5f99"/>
+    <text x="751" y="410" class="small" fill="#fff" font-weight="650" text-anchor="middle">Confirm this exact decision</text>
+    <text x="245" y="436" class="tiny muted">Nothing is recorded until you type the word and press the button. It records your decision; it does not mean the run succeeded.</text>
+
+    <rect class="card" x="215" y="464" width="1010" height="136" rx="14"/>
+    <text x="245" y="498" font-size="19" font-weight="700">Workflow</text>
     <g class="small" font-weight="650">
-      <rect x="245" y="366" width="137" height="48" rx="8" fill="#dcfce7"/><text x="263" y="395">DEFINE · PASSED</text>
-      <rect x="394" y="366" width="137" height="48" rx="8" fill="#dcfce7"/><text x="412" y="395">DESIGN · PASSED</text>
-      <rect x="543" y="366" width="145" height="48" rx="8" fill="#dcfce7"/><text x="561" y="395">EXECUTE · PASSED</text>
-      <rect x="700" y="366" width="137" height="48" rx="8" fill="#dcfce7"/><text x="718" y="395">REVIEW · PASSED</text>
-      <rect x="849" y="366" width="151" height="48" rx="8" fill="#fee2e2" stroke="#b42318" stroke-width="2"/><text x="867" y="395" fill="#b42318">VALIDATE · FAILED</text>
-      <rect x="1012" y="366" width="177" height="48" rx="8" fill="#edf2f7"/><text x="1030" y="395">HANDOVER · PENDING</text>
+      <rect x="245" y="520" width="137" height="48" rx="8" fill="#dcfce7"/><text x="263" y="549">DEFINE · PASSED</text>
+      <rect x="394" y="520" width="137" height="48" rx="8" fill="#dcfce7"/><text x="412" y="549">DESIGN · PASSED</text>
+      <rect x="543" y="520" width="145" height="48" rx="8" fill="#dcfce7"/><text x="561" y="549">EXECUTE · PASSED</text>
+      <rect x="700" y="520" width="137" height="48" rx="8" fill="#dcfce7"/><text x="718" y="549">REVIEW · PASSED</text>
+      <rect x="849" y="520" width="151" height="48" rx="8" fill="#fee2e2" stroke="#b42318" stroke-width="2"/><text x="867" y="549" fill="#b42318">VALIDATE · FAILED</text>
+      <rect x="1012" y="520" width="177" height="48" rx="8" fill="#edf2f7"/><text x="1030" y="549">HANDOVER · PENDING</text>
     </g>
 
-    <rect class="card" x="215" y="464" width="490" height="176" rx="14"/>
-    <text x="245" y="499" font-size="19" font-weight="700">Choose your next loop</text>
-    <text x="245" y="526" class="small muted">Creates text to copy into chat; starts nothing.</text>
-    <text x="245" y="557" class="label">Work kind</text><rect x="245" y="568" width="200" height="38" rx="6" fill="#fff" stroke="#899bad"/><text x="259" y="593" class="small">Bug fix</text>
-    <text x="470" y="557" class="label">Run mode</text><rect x="470" y="568" width="205" height="38" rx="6" fill="#fff" stroke="#899bad"/><text x="484" y="593" class="small">Step by step · one node</text>
-    <text x="245" y="625" class="small" fill="#205994">Copy the generated request into chat</text>
+    <rect class="card" x="215" y="618" width="490" height="176" rx="14"/>
+    <text x="245" y="653" font-size="19" font-weight="700">Choose your next loop</text>
+    <text x="245" y="680" class="small muted">Creates text to copy into chat; starts nothing.</text>
+    <text x="245" y="711" class="label">Work kind</text><rect x="245" y="722" width="200" height="38" rx="6" fill="#fff" stroke="#899bad"/><text x="259" y="747" class="small">Bug fix</text>
+    <text x="470" y="711" class="label">Run mode</text><rect x="470" y="722" width="205" height="38" rx="6" fill="#fff" stroke="#899bad"/><text x="484" y="747" class="small">Step by step · one node</text>
+    <text x="245" y="779" class="small" fill="#205994">Copy the generated request into chat</text>
 
-    <rect class="card" x="723" y="464" width="502" height="176" rx="14"/>
-    <text x="753" y="499" font-size="19" font-weight="700">Current job</text>
-    <text x="753" y="535" class="label">job-WI-001-006 · BLOCKED</text>
-    <text x="753" y="565" class="small">4 / 12 nodes recorded</text>
-    <text x="753" y="596" class="small muted">Progress record only; gate evidence decides the result.</text>
+    <rect class="card" x="723" y="618" width="502" height="176" rx="14"/>
+    <text x="753" y="653" font-size="19" font-weight="700">Current job</text>
+    <text x="753" y="689" class="label">job-WI-001-006 · BLOCKED</text>
+    <text x="753" y="719" class="small">4 / 12 nodes recorded</text>
+    <text x="753" y="750" class="small muted">Progress record only; gate evidence decides the result.</text>
+    <text x="753" y="778" class="small">Execution: chat-hosted · review: codex</text>
 
-    <rect class="card" x="215" y="658" width="490" height="150" rx="14"/>
-    <text x="245" y="693" font-size="19" font-weight="700">Authorization of this item</text>
-    <text x="245" y="723" class="small"><tspan class="ok">READY</tspan> · expires in 21 h · channel interactive-tty</text>
-    <text x="245" y="748" class="small">Paths: src/**, tests/**</text>
-    <text x="245" y="772" class="small">Budget: 40 rounds · 3600 s · stops at first failed gate</text>
-    <text x="245" y="795" class="tiny muted">A permission to start, never approval of a result.</text>
+    <rect class="card" x="215" y="812" width="490" height="150" rx="14"/>
+    <text x="245" y="847" font-size="19" font-weight="700">Authorization of this item</text>
+    <text x="245" y="877" class="small"><tspan class="ok">READY</tspan> · expires in 21 h · channel interactive-tty</text>
+    <text x="245" y="902" class="small">Paths: src/**, tests/**</text>
+    <text x="245" y="926" class="small">Budget: 40 rounds · 3600 s · stops at first failed gate</text>
+    <text x="245" y="949" class="tiny muted">A permission to start, never approval of a result.</text>
 
-    <rect class="card" x="723" y="658" width="502" height="150" rx="14"/>
-    <text x="753" y="693" font-size="19" font-weight="700">Backlog · 1 READY · 2 PAUSED</text>
-    <text x="753" y="722" class="small">WI-002 · Order export as CSV</text><text x="1120" y="722" class="small ok">READY</text>
-    <text x="753" y="747" class="small">WI-003 · Retry the flaky contract test</text><text x="1120" y="747" class="small muted">PAUSED</text>
-    <text x="753" y="771" class="small">WI-004 · Document the error codes</text><text x="1120" y="771" class="small muted">PAUSED</text>
-    <text x="753" y="795" class="tiny muted">Nothing in this list starts on its own.</text>
+    <rect class="card" x="723" y="812" width="502" height="150" rx="14"/>
+    <text x="753" y="847" font-size="19" font-weight="700">Backlog · 1 READY · 2 PAUSED</text>
+    <text x="753" y="876" class="small">WI-002 · Order export as CSV</text><text x="1120" y="876" class="small ok">READY</text>
+    <text x="753" y="901" class="small">WI-003 · Retry the flaky contract test</text><text x="1120" y="901" class="small muted">PAUSED</text>
+    <text x="753" y="925" class="small">WI-004 · Document the error codes</text><text x="1120" y="925" class="small muted">PAUSED</text>
+    <text x="753" y="949" class="tiny muted">Nothing in this list starts on its own.</text>
 
-    <rect class="card" x="215" y="826" width="490" height="132" rx="14"/>
-    <text x="245" y="861" font-size="19" font-weight="700">Inbox · 2 scout proposals</text>
-    <text x="245" y="891" class="small">P-…-1 · Contract drift on GET /orders</text>
-    <text x="245" y="915" class="small">P-…-2 · No test for the 422 path</text>
-    <text x="245" y="940" class="tiny muted">Inert text until a person promotes it into the backlog.</text>
+    <rect class="card" x="215" y="980" width="490" height="132" rx="14"/>
+    <text x="245" y="1015" font-size="19" font-weight="700">Inbox · 2 scout proposals</text>
+    <text x="245" y="1045" class="small">P-…-1 · Contract drift on GET /orders</text>
+    <text x="245" y="1069" class="small">P-…-2 · No test for the 422 path</text>
+    <text x="245" y="1094" class="tiny muted">Inert text until a person promotes it into the backlog.</text>
 
-    <rect class="card" x="723" y="826" width="502" height="132" rx="14"/>
-    <text x="753" y="861" font-size="19" font-weight="700">Last tick and memory</text>
-    <text x="753" y="891" class="small">09:30 UTC · <tspan class="wait">ran-node</tspan> · WI-001 · VALIDATE</text>
-    <text x="753" y="915" class="small">Last scout: 08:05 UTC · 2 proposals · api profile</text>
-    <text x="753" y="940" class="tiny muted">› Next steps (advisory): 3 priorities from the last handover</text>
+    <rect class="card" x="723" y="980" width="502" height="132" rx="14"/>
+    <text x="753" y="1015" font-size="19" font-weight="700">Last tick and memory</text>
+    <text x="753" y="1045" class="small">09:30 UTC · <tspan class="wait">ran-node</tspan> · WI-001 · VALIDATE</text>
+    <text x="753" y="1069" class="small">Last scout: 08:05 UTC · 2 proposals · api profile</text>
+    <text x="753" y="1094" class="tiny muted">› Next steps (advisory): 3 priorities from the last handover</text>
 
-    <rect class="card" x="215" y="976" width="490" height="110" rx="14"/>
-    <text x="245" y="1011" font-size="19" font-weight="700">Blockers</text>
-    <text x="245" y="1046" class="small" fill="#b42318">Open · VALIDATE: API response differs from contract</text>
-    <text x="245" y="1068" class="small muted">Answer in chat, then resume.</text>
+    <rect class="card" x="215" y="1130" width="490" height="110" rx="14"/>
+    <text x="245" y="1165" font-size="19" font-weight="700">Blockers</text>
+    <text x="245" y="1200" class="small" fill="#b42318">Open · VALIDATE: API response differs from contract</text>
+    <text x="245" y="1222" class="small muted">Answer in chat, then resume.</text>
 
-    <rect class="card" x="723" y="976" width="502" height="110" rx="14"/>
-    <text x="753" y="1011" font-size="19" font-weight="700">Evidence</text>
-    <text x="753" y="1043" class="small">validate-contract · VALIDATE · FAILED</text>
-    <text x="753" y="1067" class="small">review-WI-001 · REVIEW · PASSED</text>
+    <rect class="card" x="723" y="1130" width="502" height="110" rx="14"/>
+    <text x="753" y="1165" font-size="19" font-weight="700">Evidence</text>
+    <text x="753" y="1197" class="small">validate-contract · VALIDATE · FAILED</text>
+    <text x="753" y="1221" class="small">review-WI-001 · REVIEW · PASSED</text>
 
-    <rect class="card" x="215" y="1104" width="1010" height="82" rx="14"/>
-    <text x="245" y="1140" font-size="19" font-weight="700">› Work item</text>
-    <text x="245" y="1166" class="small muted">Expand to read scope, acceptance criteria, slices, and handover notes.</text>
+    <rect class="card" x="215" y="1258" width="1010" height="82" rx="14"/>
+    <text x="245" y="1294" font-size="19" font-weight="700">› Work item</text>
+    <text x="245" y="1320" class="small muted">Expand to read scope, acceptance criteria, slices, and handover notes.</text>
   </g>
 
   <g class="ui">
     <rect class="call" x="20" y="190" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="214" r="15"/><text class="numtext" x="45" y="214">1</text><text x="68" y="219" class="label">Status</text><text x="35" y="248" class="small">Start here.</text><path class="arrow" d="M170 231 L225 231"/>
-    <rect class="call" x="20" y="330" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="354" r="15"/><text class="numtext" x="45" y="354">2</text><text x="68" y="359" class="label">Gates</text><text x="35" y="388" class="small">Find the phase.</text><path class="arrow" d="M170 371 L225 371"/>
-    <rect class="call" x="20" y="500" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="524" r="15"/><text class="numtext" x="45" y="524">3</text><text x="68" y="529" class="label">Next loop</text><text x="35" y="558" class="small">Copy to chat.</text><path class="arrow" d="M170 541 L225 541"/>
-    <rect class="call" x="1270" y="495" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="519" r="15"/><text class="numtext" x="1295" y="519">4</text><text x="1318" y="524" class="label">Job</text><text x="1285" y="553" class="small">Progress record.</text><path class="arrow" d="M1270 536 L1220 536"/>
-    <rect class="call" x="20" y="692" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="716" r="15"/><text class="numtext" x="45" y="716">5</text><text x="68" y="721" class="label">Authorized</text><text x="35" y="750" class="small">Scope and budget.</text><path class="arrow" d="M170 733 L225 733"/>
-    <rect class="call" x="1270" y="692" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="716" r="15"/><text class="numtext" x="1295" y="716">6</text><text x="1318" y="721" class="label">Backlog</text><text x="1285" y="750" class="small">The queue behind.</text><path class="arrow" d="M1270 733 L1220 733"/>
-    <rect class="call" x="20" y="851" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="875" r="15"/><text class="numtext" x="45" y="875">7</text><text x="68" y="880" class="label">Inbox</text><text x="35" y="909" class="small">Scout proposals.</text><path class="arrow" d="M170 892 L225 892"/>
-    <rect class="call" x="1270" y="851" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="875" r="15"/><text class="numtext" x="1295" y="875">8</text><text x="1318" y="880" class="label">Tick</text><text x="1285" y="909" class="small">What a timer did.</text><path class="arrow" d="M1270 892 L1220 892"/>
-    <rect class="call" x="20" y="990" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1014" r="15"/><text class="numtext" x="45" y="1014">9</text><text x="68" y="1019" class="label">Blocker</text><text x="35" y="1048" class="small">Answer in chat.</text><path class="arrow" d="M170 1031 L225 1031"/>
-    <rect class="call" x="1270" y="990" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1014" r="15"/><text class="numtext" x="1295" y="1014">10</text><text x="1322" y="1019" class="label">Evidence</text><text x="1285" y="1048" class="small">Checks, results.</text><path class="arrow" d="M1270 1031 L1220 1031"/>
-    <rect class="call" x="1270" y="1113" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1137" r="15"/><text class="numtext" x="1295" y="1137">11</text><text x="1322" y="1142" class="label">Scope</text><text x="1285" y="1171" class="small">The work item.</text><path class="arrow" d="M1270 1154 L1220 1154"/>
+    <rect class="call" x="20" y="337" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="361" r="15"/><text class="numtext" x="45" y="361">2</text><text x="68" y="366" class="label">Decisions</text><text x="35" y="395" class="small">Type the word.</text><path class="arrow" d="M170 378 L225 378"/>
+    <rect class="call" x="20" y="484" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="508" r="15"/><text class="numtext" x="45" y="508">3</text><text x="68" y="513" class="label">Gates</text><text x="35" y="542" class="small">Find the phase.</text><path class="arrow" d="M170 525 L225 525"/>
+    <rect class="call" x="20" y="654" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="678" r="15"/><text class="numtext" x="45" y="678">4</text><text x="68" y="683" class="label">Next loop</text><text x="35" y="712" class="small">Copy to chat.</text><path class="arrow" d="M170 695 L225 695"/>
+    <rect class="call" x="1270" y="649" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="673" r="15"/><text class="numtext" x="1295" y="673">5</text><text x="1318" y="678" class="label">Job</text><text x="1285" y="707" class="small">Progress record.</text><path class="arrow" d="M1270 690 L1220 690"/>
+    <rect class="call" x="20" y="846" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="870" r="15"/><text class="numtext" x="45" y="870">6</text><text x="68" y="875" class="label">Authorized</text><text x="35" y="904" class="small">Scope and budget.</text><path class="arrow" d="M170 887 L225 887"/>
+    <rect class="call" x="1270" y="846" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="870" r="15"/><text class="numtext" x="1295" y="870">7</text><text x="1318" y="875" class="label">Backlog</text><text x="1285" y="904" class="small">The queue behind.</text><path class="arrow" d="M1270 887 L1220 887"/>
+    <rect class="call" x="20" y="1005" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1029" r="15"/><text class="numtext" x="45" y="1029">8</text><text x="68" y="1034" class="label">Inbox</text><text x="35" y="1063" class="small">Scout proposals.</text><path class="arrow" d="M170 1046 L225 1046"/>
+    <rect class="call" x="1270" y="1005" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1029" r="15"/><text class="numtext" x="1295" y="1029">9</text><text x="1318" y="1034" class="label">Tick</text><text x="1285" y="1063" class="small">What a timer did.</text><path class="arrow" d="M1270 1046 L1220 1046"/>
+    <rect class="call" x="20" y="1144" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1168" r="15"/><text class="numtext" x="45" y="1168">10</text><text x="68" y="1173" class="label">Blocker</text><text x="35" y="1202" class="small">Answer in chat.</text><path class="arrow" d="M170 1185 L225 1185"/>
+    <rect class="call" x="1270" y="1144" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1168" r="15"/><text class="numtext" x="1295" y="1168">11</text><text x="1322" y="1173" class="label">Evidence</text><text x="1285" y="1202" class="small">Checks, results.</text><path class="arrow" d="M1270 1185 L1220 1185"/>
+    <rect class="call" x="1270" y="1267" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1291" r="15"/><text class="numtext" x="1295" y="1291">12</text><text x="1322" y="1296" class="label">Scope</text><text x="1285" y="1325" class="small">The work item.</text><path class="arrow" d="M1270 1308 L1220 1308"/>
   </g>
 </svg>

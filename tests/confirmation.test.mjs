@@ -335,3 +335,29 @@ test('an unusable confirmation policy is reported and leaves only the terminal d
   assert.equal(repaired.policy.source, 'policy-file');
   assert.equal(repaired.human_confirmation, 'tty-or-local-page');
 });
+
+// A review done by the chat that built the change is named in the frozen accept
+// decision, so the person accepts knowing it; an isolated review adds nothing.
+test('the frozen accept decision says when the review was not independently isolated', async () => {
+  const provenance = async (root, isolated) => {
+    const dir = path.join(root, '.loop', 'evidence', 'run-WI-001-4-review');
+    await fs.mkdir(dir, { recursive: true });
+    await writeJson(path.join(dir, 'provenance.json'), { schema_version: 1, run_id: 'run-WI-001-4-review', work_item_id: 'WI-001', phase: 'REVIEW', round: 4, slice: null, host: isolated ? 'claude' : 'chat', builder_host: 'chat', review_host: isolated ? 'claude' : 'chat', review_isolated: isolated, outcome: 'PASSED', evidence_ids: [], recorded_at: '2026-01-01T00:00:00Z' });
+  };
+  const waiting = { run_status: 'WAITING_FOR_HUMAN', phase: 'HANDOVER', gates: passedGates(['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER']) };
+  const same = await project(waiting);
+  await provenance(same, false);
+  const requested = await dispatch(same, 'accept', { confirm: 'ACCEPT' }, { channel: 'cli-input' });
+  assert.equal(requested.ok, true, JSON.stringify(requested));
+  const frozen = await readJson(requestPath(same, requested.request_id));
+  const line = frozen.summary.find((entry) => entry.label === 'Review independence');
+  assert.ok(line && line.value.startsWith('Review was not independently isolated (same chat)'), JSON.stringify(frozen.summary));
+  assert.equal(requested.request_digest, requestDigest(frozen), 'the warning is part of what the receipt binds');
+  const html = await (await fetch(requested.confirmation_url)).text();
+  assert.match(html, /Review was not independently isolated \(same chat\)/);
+
+  const isolated = await project(waiting);
+  await provenance(isolated, true);
+  const clean = await dispatch(isolated, 'accept', { confirm: 'ACCEPT' }, { channel: 'cli-input' });
+  assert.ok(!(await readJson(requestPath(isolated, clean.request_id))).summary.some((entry) => entry.label === 'Review independence'));
+});

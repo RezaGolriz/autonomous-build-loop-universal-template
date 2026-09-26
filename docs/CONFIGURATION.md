@@ -40,6 +40,11 @@ A machine-specific override can use:
 }
 ```
 
+To let the chat itself do the node work instead of a separate CLI, use
+`"host": "chat"`, and set `"review_host"` to `codex` or `claude` if the review
+should stay independent. See
+[Who does the node work](LOOP-MODES.md#who-does-the-node-work-a-separate-cli-process-or-this-chat).
+
 Then run:
 
 ```bash
@@ -68,7 +73,13 @@ the default. The same variables also work when set directly for a manual run.
 Keep the independent review on your strongest model: it is the check every
 other phase relies on.
 
-Valid host values are codex, claude, and mock. mock is test infrastructure.
+Valid host values are codex, claude, chat, and mock. chat means chat-hosted
+execution: the chat does each node through chat_next and chat_submit, and the
+engine still verifies it. With host chat you must also choose review_host
+yourself: claude or codex (a separate CLI process, independent) or chat (this
+same chat; the review is then reported as "Review was not independently isolated
+(same chat)"). Without that choice chat_next refuses with
+CHAT_REVIEW_HOST_REQUIRED. mock is test infrastructure.
 Executable availability and authentication are machine facts. They do not
 belong in the portable project adapter.
 
@@ -88,21 +99,6 @@ doctor.
 
 ## Local approval and host trust
 
-`.loop/control/policy.json` is the one file in the control directory that a
-person writes by hand: `{"schema_version": 1, "human_confirmation":
-"tty-or-local-page"}` (the default) or `"tty-only"`. With `tty-only`, accept,
-authorize and promote are refused from an input file or a chat tool call with
-`CONFIRMATION_TTY_ONLY` plus the complete command to run at a terminal
-(`build-loop <operation> --root '<project>' --input '<the same arguments>'`),
-and only a word typed at an interactive terminal decides. A page request that
-was still pending is discarded rather than settled. The file has to match
-[spec/schemas/confirmation-policy.schema.json](../spec/schemas/confirmation-policy.schema.json)
-exactly: an unknown key, a null value, an unknown mode or a wrong version is
-refused with `INVALID_POLICY` and never treated as the default; while the file is
-broken the project accepts only a word typed at an interactive terminal, and
-`status`, `check` and both dashboards name the error under `policy`. No operation
-ever writes or edits this file.
-
 configure signs `.loop/host.local.json` with a private per-user key. Approval
 receipts are signed with the same key. Both signatures include the canonical
 project root, so hand-editing the host file or copying signed files to a different
@@ -121,6 +117,82 @@ project. The key file inside it remains named `approval-key`. Moving a project,
 changing this store, or losing its key invalidates the existing local trust:
 configure the provider again and complete a new human approval for the current
 setup.
+
+### The policy file: who may decide, and from where
+
+`.loop/control/policy.json` is the one file in the control directory that a
+person writes by hand. No operation ever writes or edits it. It answers two
+questions: how a human decision may be typed, and where the confirmation pages
+and the control page can be reached. A complete example (use your own
+computer's private or VPN address instead of the documentation address
+`192.0.2.10`):
+
+```json
+{
+  "schema_version": 1,
+  "human_confirmation": "tty-or-local-page",
+  "confirmation_page": {
+    "listen": "0.0.0.0",
+    "advertise": "192.0.2.10",
+    "port": 8765
+  }
+}
+```
+
+- `schema_version` is always `1`.
+- `human_confirmation` says where the word may be typed. `tty-or-local-page`
+  (the default): at a terminal, or on the confirmation page or control page.
+  `tty-only`: at a terminal and nowhere else; chat calls and input files get
+  `CONFIRMATION_TTY_ONLY` plus the exact command to run.
+- `confirmation_page` is optional. Leave it out and every page stays on
+  `127.0.0.1`, which means this computer only.
+- `listen` is the IP address the pages wait on: `127.0.0.1` (this computer
+  only), `0.0.0.0` (every network connection), or one address such as this
+  computer's VPN address. It must be a number address, not a name.
+- `advertise` is the name or address your phone uses to reach this computer,
+  without `http://` and without a port. The links are built from it. It is
+  required whenever `listen` is not `127.0.0.1`.
+- `port` is optional (1024–65535). Leave it out for a random one; set it when a
+  firewall rule needs a fixed one. With a fixed port only one page can use it:
+  while the control page runs, approve a new setup at the terminal with
+  `build-loop approve`.
+
+The file must match
+[spec/schemas/confirmation-policy.schema.json](../spec/schemas/confirmation-policy.schema.json)
+exactly. Anything else is `INVALID_POLICY`, and until a person repairs it the
+project behaves as `tty-only`. `status`, `check` and the dashboard show the mode
+and the address in force.
+
+**Phone access.** With `confirmation_page` set, the links name the advertised
+address, for example `http://192.0.2.10:8765/`, so they open on your phone
+inside your home network or a VPN such as WireGuard or Tailscale. A VPN is one
+option, not a requirement; your home Wi‑Fi works too. The pages are plain web
+traffic (HTTP, not HTTPS): never make them reachable from the internet, and
+never forward a router port to them. After changing the file, restart the
+control page: `build-loop serve --root <project> --stop`, then
+`build-loop serve --root <project>`. What the safety checks do and do not
+promise: [The control page](DASHBOARD.md#the-control-page).
+
+## Keep the control page running
+
+`build-loop serve` does not come back by itself after the computer restarts. To
+keep it running, install it as a service. Two examples ship with the package.
+In each, replace `<TEMPLATE_ROOT>` (where build-loop is), `<PROJECT_ROOT>` (your
+project) and `<NODE>` (what `command -v node` prints) with real absolute paths.
+
+| | macOS (launchd) | Linux (systemd user service) |
+|---|---|---|
+| Copy | `integrations/launchd/com.build-loop.control-page.plist.example` to `~/Library/LaunchAgents/com.build-loop.control-page.plist` | `integrations/systemd/build-loop-control-page.service.example` to `~/.config/systemd/user/build-loop-control-page.service` |
+| Start | `launchctl load ~/Library/LaunchAgents/com.build-loop.control-page.plist` | `systemctl --user daemon-reload`, then `systemctl --user enable --now build-loop-control-page` |
+| Remove | `launchctl unload` the same file, then delete it | `systemctl --user disable --now build-loop-control-page`, delete the file, `systemctl --user daemon-reload` |
+
+Then get a link: `build-loop serve --root <PROJECT_ROOT>` prints a single-use
+link (once, within 10 minutes); `--show-link` at an interactive terminal prints
+the lasting one.
+One service serves one project; for a second one, copy the file under another
+name (and another label in the plist). `build-loop serve --stop` ends the page
+until the service is started again. The access key never goes into these files;
+it stays in `<PROJECT_ROOT>/.loop/scheduler/control-page.token`.
 
 ## Repository privacy
 

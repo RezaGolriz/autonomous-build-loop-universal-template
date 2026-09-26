@@ -176,7 +176,7 @@ export async function prepareProject(root, args) {
     adapter = applyOverrides(inspection.recommendation, args.adapter_overrides || {}); adapterSource = inspection.adapter_source ? `existing-${inspection.adapter_source}` : 'accepted-recommendation-with-overrides';
   } else if (args.adapter_overrides) adapter = applyOverrides(adapter, args.adapter_overrides);
   validateAdapter(adapter);
-  const id = args.work_item_id || 'WI-001'; stringValue(id, 'work_item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/ });
+  const id = args.work_item_id || 'WI-001'; stringValue(id, 'work_item_id', { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/ });
   const created = now(); const workflow = await readJson(workflowSource, 'bundled workflow');
   const state = { schema_version: 1, work_item_id: id, phase: 'DEFINE', run_status: 'PAUSED', step: 'bootstrap-confirmation', round: 0, max_rounds: args.max_rounds || 40, gate_failures_here: 0, max_gate_failures: args.max_gate_failures || 3, autonomy: args.autonomy || 'supervised', started_epoch: 0, max_wall_seconds: args.max_wall_seconds || 14400, gates: gates(), last_result: 'Candidate generated; not activated.', next_action: 'Request human setup approval, then activate through disposable positive and negative probes.', updated_at: created };
   const work = workItem({ id, ...args, frozen_paths: args.frozen_paths || [] });

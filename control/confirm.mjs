@@ -17,9 +17,10 @@
 // same lock in which the runner re-checks that the live item still matches what
 // was frozen. Anything that no longer matches is refused as CONFIRMATION_STALE.
 //
-// Assurance: the confirmation page is a local page reached over loopback. It
-// records `local-user-action`: somebody with access to this machine opened the
-// link and typed the word. A project that needs a stronger guarantee sets
+// Assurance: the confirmation page is a local page reached over loopback, or,
+// when confirmation_page in .loop/control/policy.json says so, over the owner's
+// private network or VPN. It records `local-user-action`: somebody who could
+// reach the page opened the link and typed the word. A project that needs a stronger guarantee sets
 // `human_confirmation` to "tty-only" in .loop/control/policy.json.
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
@@ -29,6 +30,7 @@ import { signOperationConfirmation, verifyOperationConfirmation } from './approv
 import {
   ControlError, assertControlPath, atomicJson, exactKeys, exists, jsonDigest, nonce, now, readJson, sha256,
 } from './common.mjs';
+import { runningControlPageLink } from './control-page.mjs';
 
 const serverPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'confirm-server.mjs');
 const REQUEST_TTL_MS = 15 * 60_000;
@@ -91,14 +93,31 @@ async function pendingRequests(scheduler) {
   return requests;
 }
 
+// The open requests a person can still confirm: written, not expired, no
+// receipt yet. The control page lists these in its decisions panel.
+export async function listPendingConfirmations(root) {
+  const { loop } = await assertControlPath(root);
+  const scheduler = schedulerDirectory(loop);
+  const open = [];
+  for (const request of await pendingRequests(scheduler)) {
+    if (!humanOperations[request.operation] || !Array.isArray(request.summary)) continue;
+    if (!(Date.parse(request.expires_at) > Date.now())) continue;
+    if (await exists(receiptFile(scheduler, request.request_id))) continue;
+    open.push(request);
+  }
+  return open;
+}
+
 // A request that is still open for the same asked-for decision is reused, so a
 // repeated tool call hands the person the same link instead of a second one.
-async function reusableRequest(scheduler, operation, itemId, digest) {
+async function reusableRequest(scheduler, operation, itemId, digest, pageLink = null) {
   for (const request of await pendingRequests(scheduler)) {
     if (request.operation !== operation || request.payload_digest !== digest || (request.item_id ?? null) !== (itemId ?? null)) continue;
     if (Date.parse(request.expires_at) <= Date.now()) continue;
     if (await exists(receiptFile(scheduler, request.request_id))) continue;
     const runtime = await readJson(runtimeFile(scheduler, request.request_id), 'confirmation runtime').catch(() => null);
+    // With the control page running, every open request is shown there.
+    if (pageLink) return { request, url: pageLink };
     const endpoint = await readJson(readyFile(scheduler, request.request_id), 'confirmation endpoint').catch(() => null);
     if (!runtime?.token || !endpoint?.origin) continue;
     return { request, url: `${endpoint.origin}/confirm?token=${encodeURIComponent(runtime.token)}` };
@@ -114,7 +133,10 @@ export async function requestConfirmation(root, operation, itemId, args, frozen,
   const scheduler = schedulerDirectory(loop);
   const payload = decisionPayload(args);
   const digest = payloadDigest(operation, itemId, payload);
-  const reused = await reusableRequest(scheduler, operation, itemId, digest);
+  // When the long-lived control page is running, the pending request appears
+  // on it and the link points there; no separate one-request page is started.
+  const pageLink = await runningControlPageLink(root).catch(() => null);
+  const reused = await reusableRequest(scheduler, operation, itemId, digest, pageLink);
   const pending = (request, url, idempotent) => ({
     ok: true,
     pending_confirmation: true,
@@ -131,6 +153,7 @@ export async function requestConfirmation(root, operation, itemId, args, frozen,
     confirmation_url: url,
     expires_at: request.expires_at,
     assurance: LOCAL_USER_ACTION,
+    ...(pageLink ? { control_page: true } : {}),
     next: `${operation} is a human decision. Give this link to the person; they type ${humanOperations[operation]} on the page and press the button. Do not open it yourself.`,
   });
   if (reused) return pending(reused.request, reused.url, true);
@@ -152,12 +175,13 @@ export async function requestConfirmation(root, operation, itemId, args, frozen,
   await fs.mkdir(path.join(scheduler, 'operation-runtime'), { recursive: true });
   await atomicJson(requestFile(scheduler, requestId), request);
   await atomicJson(runtimeFile(scheduler, requestId), { token }, 0o600);
+  if (pageLink) return pending(request, pageLink, false);
   const log = await fs.open(path.join(scheduler, 'operation-runtime', `${requestId}.log`), 'a', 0o600);
   const child = spawn(process.execPath, [serverPath, root, requestId], { detached: true, stdio: ['ignore', log.fd, log.fd] });
   child.unref();
   await log.close();
   const endpoint = await serverEndpoint(scheduler, requestId);
-  if (!endpoint) throw new ControlError('CONFIRMATION_SERVER_FAILED', 'the local confirmation server did not become ready');
+  if (!endpoint) throw new ControlError('CONFIRMATION_SERVER_FAILED', 'the local confirmation server did not become ready (with a fixed confirmation_page.port another page may still be open on that port)');
   return pending(request, `${endpoint.origin}/confirm?token=${encodeURIComponent(token)}`, false);
 }
 

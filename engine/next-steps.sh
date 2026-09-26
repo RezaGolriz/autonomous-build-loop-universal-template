@@ -73,6 +73,20 @@ EOF
 $(jq -r '(.gates.REVIEW.evidence_ids // [])[]?' "$state" 2>/dev/null || :)
 EOF
 
+  # Review independence: the newest REVIEW provenance of this item. Said only
+  # when that review was done by the same chat that built the change.
+  local review_note='' prov newest_at='' at isolated
+  for prov in "$evidence"/*/provenance.json; do
+    [ -f "$prov" ] && [ ! -L "$prov" ] || continue
+    at=$(jq -r --arg w "$item" 'select(.phase=="REVIEW" and .work_item_id==$w)|(.recorded_at // "")' "$prov" 2>/dev/null || :)
+    [ -n "$at" ] || continue
+    if [ -z "$newest_at" ] || [[ "$at" > "$newest_at" ]]; then
+      newest_at=$at
+      isolated=$(jq -r '.review_isolated' "$prov" 2>/dev/null || :)
+      if [ "$isolated" = false ]; then review_note='Review was not independently isolated (same chat)'; else review_note=''; fi
+    fi
+  done
+
   last_ids=$(jq -r --argjson phases "$loop_next_steps_phases" '
     . as $st|($phases|map(select($st.gates[.].status=="PASSED" or $st.gates[.].status=="FAILED"))|last) as $lp|
     if $lp==null or (($st.gates[$lp].evidence_ids // [])|length)==0 then "none recorded" else ($st.gates[$lp].evidence_ids|join(", ")) end' "$state")
@@ -113,6 +127,7 @@ EOF
   printf -- '- Rounds used: %s of %s\n' "$round" "$max_rounds"
   printf -- '- Gate results: %s\n' "$gates"
   printf -- '- Review verdict: %s\n' "$verdict"
+  [ -z "$review_note" ] || printf -- '- Review independence: %s\n' "$review_note"
   printf -- '- Rework loops: %s\n' "$rework"
   printf -- '- Open blockers: %s\n\n' "$blockers"
   printf '## Priorities\n\n'

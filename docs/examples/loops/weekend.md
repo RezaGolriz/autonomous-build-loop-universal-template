@@ -49,7 +49,17 @@ Leave the documentation item unauthorized. Do not start anything.
 *(calls `loop_authorize` twice. Each call returns its own confirmation link. You
 open each link, read the record it would write — the paths, the budget, the
 expiry — type `AUTHORIZE` into the field and press the button. Two items means
-two separate decisions; there is no way to confirm both at once.)*
+two separate decisions; there is no way to confirm both at once. To approve
+from your phone over your home network or VPN, set `confirmation_page` in
+`.loop/control/policy.json` first — see [Confirming from your
+phone](../../ADVANCED.md#confirming-from-your-phone).)*
+
+**Easier for a weekend: the control page.** Ask *"Start the control page and give
+me its link"* (it calls `loop_serve`), or run `build-loop serve --root "$ROOT"`
+yourself. Bookmark that one link on your phone. Both authorizations then wait in
+its Decisions panel, and on the page you can also hold the project, release it,
+or accept the run on Monday — each by typing the word. See [The control
+page](../../DASHBOARD.md#the-control-page).
 
 **3. Ask the client to call `tick` every 30 minutes.**
 
@@ -81,7 +91,8 @@ anything else runs.
 *(calls `loop_hold`. Unlike accepting or authorizing, placing a hold needs no
 confirmation page: stopping is never the dangerous direction, so any channel may
 do it. Taking it off is the human decision — `loop_release` returns a
-confirmation link where you type `RELEASE`.)*
+confirmation link where you type `RELEASE`. On the control page the **Hold**
+button does the same without a chat.)*
 
 ## On the command line
 
@@ -166,8 +177,8 @@ written again).
   happen next. It approves nothing, and `accept` copies it into history rather
   than acting on it.
 - **The dashboard for a quick look.** Ask chat to show the dashboard, or run
-  `build-loop dashboard --root "$ROOT" --json` and open the link. It is
-  read-only and its local server stops 30 minutes after the link is issued.
+  `build-loop dashboard --root "$ROOT" --json` and open the link (also from
+  your phone when the control page is set up).
 
 ## What can never happen by itself
 

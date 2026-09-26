@@ -8,6 +8,8 @@ import { checkExitCode } from '../control/check.mjs';
 import { tickExitCode } from '../control/tick.mjs';
 import { resolveRoot } from '../control/common.mjs';
 import { verifyPlanForApproval } from '../control/setup.mjs';
+import { rotateControlPageToken, serveControlPage, stopControlPage } from '../control/control-page.mjs';
+import { REVIEW_NOT_ISOLATED, recordedReview } from '../control/chat.mjs';
 
 // Human-only decisions. Each needs its own literal word, typed at an
 // interactive terminal. An explicit input file is not a person: it returns a
@@ -17,6 +19,7 @@ const confirmations = { accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROM
 function usage(message = '') {
   if (message) process.stderr.write(`${message}\n`);
   process.stderr.write('Usage: build-loop OP --root PATH [--input FILE] [--json]\n');
+  process.stderr.write('       build-loop serve --root PATH [--show-link | --stop | --rotate]\n');
   process.stderr.write(`Operations: ${[...Object.keys(operations), 'request-approval', 'approve'].join(', ')}\n`);
   process.exit(64);
 }
@@ -25,10 +28,15 @@ const ttyText = (value) => String(value).replace(/[\0-\x1f\x7f]/g, (char) => `\\
 const ttyList = (values) => values.map(ttyText).join(', ');
 
 const argv = process.argv.slice(2); const operation = argv.shift(); if (!operation) usage();
-let root = null; let inputFile = null; let json = false;
+let root = null; let inputFile = null; let json = false; let serveMode = null;
 while (argv.length) {
   const flag = argv.shift();
   if (flag === '--root') root = argv.shift() || usage('--root requires a value');
+  else if (['--stop', '--rotate', '--show-link'].includes(flag)) {
+    if (operation !== 'serve') usage(`${flag} only applies to serve`);
+    if (serveMode) usage('choose one of --show-link, --stop, --rotate');
+    serveMode = flag.slice(2);
+  }
   else if (flag === '--input') inputFile = argv.shift() || usage('--input requires a value');
   else if (flag === '--json') json = true;
   else usage(`unknown argument: ${flag}`);
@@ -42,7 +50,20 @@ if (inputFile) {
   catch (error) { process.stderr.write(`Invalid input JSON: ${error.message}\n`); process.exit(65); }
 }
 let result;
-if (operation === 'request-approval') result = await requestApproval(root, input);
+if (operation === 'serve') {
+  // The control page. Normally it prints a single-use link (once, within 10
+  // minutes). The durable link, which carries the access token itself, is
+  // printed only with --show-link at an interactive terminal.
+  if (inputFile) usage('serve does not accept --input');
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  try {
+    root = await resolveRoot(root);
+    if (serveMode === 'stop') result = await stopControlPage(root);
+    else if (serveMode === 'rotate') result = await rotateControlPageToken(root, { showLink: tty });
+    else if (serveMode === 'show-link' && !tty) result = { ok: false, error: { code: 'TTY_REQUIRED', message: '--show-link prints the durable link only at an interactive terminal; without it, serve prints a single-use link' } };
+    else result = await serveControlPage(root, { showLink: serveMode === 'show-link' });
+  } catch (error) { result = { ok: false, error: { code: error.code || 'CONTROL_PAGE_FAILED', message: error.message } }; }
+} else if (operation === 'request-approval') result = await requestApproval(root, input);
 else if (operation === 'approve') {
   if (inputFile) usage('approve does not accept --input');
   if (!process.stdin.isTTY || !process.stdout.isTTY) { result = { ok: false, error: { code: 'TTY_REQUIRED', message: 'approve requires an interactive TTY; use request-approval for local HTTP confirmation' } }; }
@@ -62,6 +83,13 @@ else if (operation === 'approve') {
     result = await dispatch(root, operation, input, { channel: 'cli-input' });
   } else {
     process.stdout.write(`Project root: ${ttyText(root)}\nOperation: ${ttyText(operation)}\nThis is a human decision. It is recorded with the local time and the channel you used.\n`);
+    if (operation === 'accept') {
+      // Said before the word is asked for: a review by the same chat is not independent.
+      const resolved = await resolveRoot(root).catch(() => null);
+      const state = resolved ? await fs.readFile(`${resolved}/.loop/state.json`, 'utf8').then(JSON.parse).catch(() => null) : null;
+      const review = resolved && state ? await recordedReview(resolved, state.work_item_id).catch(() => null) : null;
+      if (review && !review.review_isolated) process.stdout.write(`Warning: ${REVIEW_NOT_ISOLATED}. The REVIEW node was done by the chat that built the change, not by a separate reviewer.\n`);
+    }
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const answer = await rl.question(`Type ${word} to confirm: `);
     rl.close();

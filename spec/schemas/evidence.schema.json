@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {"const": 1},
     "evidence_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
-    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "work_item_id": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "phase": {"enum": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
     "evidence_type": {"enum": ["acceptance", "command", "artifact", "behavior", "contract", "installation", "package", "documentation", "link-check", "independent-review"]},
     "result": {"enum": ["PASSED", "FAILED", "BLOCKED"]},

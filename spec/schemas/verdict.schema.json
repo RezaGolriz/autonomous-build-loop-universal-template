@@ -9,7 +9,7 @@
     "schema_version": {"const": 1},
     "verdict_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
-    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "work_item_id": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "phase": {"const": "REVIEW"},
     "gate_id": {"const": "REVIEW"},
     "nonce": {"type": "string", "minLength": 16, "maxLength": 256},

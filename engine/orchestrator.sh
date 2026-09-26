@@ -575,7 +575,7 @@ call_provider(){ # brief out err
     env_args+=("$name=${!name-}")
     env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")
   done < <(jq -r '.environment.allow_names[]' "$adapter_file")
-  for name in HOME USER LOGNAME SHELL CODEX_HOME CLAUDE_CONFIG_DIR CODEX_BIN CLAUDE_BIN CODEX_MODEL CLAUDE_MODEL PROVIDER_TIMEOUT \
+  for name in HOME USER LOGNAME SHELL CODEX_HOME CLAUDE_CONFIG_DIR CODEX_BIN CLAUDE_BIN CODEX_MODEL CLAUDE_MODEL PROVIDER_TIMEOUT CHAT_PROVIDER_TIMEOUT_SECONDS \
     CLAUDE_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT} CODEX_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT}; do
     [ -n "${!name+x}" ] || continue
     jq -e --arg name "$name" 'has($name)' <<<"$env_seen" >/dev/null && continue
@@ -598,8 +598,26 @@ write_orch_evidence(){ # id type result observation
       revision:$rev,environment:$env,captured_at:$at,artifacts:[],details:{observation:$o}}' > "$evidence_dir/$1.json"
 }
 
+# Provenance of one node: which host produced it, which host reviews, and the
+# evidence it left. Evidence records themselves follow the fixed evidence schema,
+# so the host travels beside them in .loop/evidence/<run_id>/provenance.json.
+# Written by the orchestrator only, after the provider has exited.
+write_provenance(){ # outcome
+  [ "${node_started:-0}" = 1 ] && [ -n "${run_id:-}" ] || return 0
+  local ids_json slice_n=null
+  ids_json=$(printf '%s\n' ${ev_ids:-} | jq -Rsc 'split("\n")|map(select(length>0))|unique')
+  if [ "$phase" = EXECUTE ] && [ -n "${cur:-}" ]; then slice_n=$cur; fi
+  mkdir -p "$evidence_dir/$run_id"
+  jq -n --arg run "$run_id" --arg w "$work" --arg p "$phase" --argjson round "$round" --argjson slice "$slice_n" \
+    --arg host "$use_host" --arg builder "$host" --arg reviewer "${review_host:-$host}" --arg outcome "$1" \
+    --argjson ids "$ids_json" --arg at "$(now)" \
+    '{schema_version:1,run_id:$run,work_item_id:$w,phase:$p,round:$round,slice:$slice,host:$host,builder_host:$builder,review_host:$reviewer,
+      review_isolated:($reviewer!="chat"),outcome:$outcome,evidence_ids:$ids,recorded_at:$at}' > "$evidence_dir/$run_id/provenance.json" || :
+}
+
 go_blocked(){ # text
   local message=$1 action=${2:-resolve blocker} blocker_line
+  write_provenance BLOCKED
   mkdir -p "$loop"
   [ -f "$loop/blockers.md" ] || printf '# Blockers\n\n' > "$loop/blockers.md"
   blocker_line="- [ ] $phase $run_id: $message"
@@ -928,6 +946,7 @@ if [ "$phase" = REVIEW ]; then
   [ -z "$review_host" ] || use_host=$review_host
 fi
 [ -x "$use_prov" ] || die "provider not executable: $use_prov" 69
+node_started=1
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/loop-orch.XXXXXX")
 trap 'rm -rf "$tmp"; release_orchestrator_lock' EXIT INT TERM
 mkdir -p "$evidence_dir"
@@ -1039,6 +1058,7 @@ if [ "$saved_auth_kind" != none ] && [ "$auth_kind" = error ]; then
 fi
 auth_kind=$saved_auth_kind
 
+if [ "$passed" -eq 1 ]; then write_provenance PASSED; else write_provenance FAILED; fi
 if [ "$passed" -eq 1 ]; then
   if [ "$phase" = HANDOVER ]; then
     write_state --arg id "$ev_ids" --arg n "$(now)" \

@@ -456,4 +456,57 @@ jq '.surprise="extra"' "$d/.loop/work-items/TEST-1.authorization.json" > "$d/a.j
 jq -e '.authorization_state=="INVALID"' "$d/status-invalid.json" >/dev/null || bad 'status does not report INVALID'
 ok 'status classifies the authorization as READY, PAUSED, EXPIRED, INVALID or none'
 
+# The chat-hosted provider calls no model: it writes the brief and waits for the
+# chat's result. With none in time the node blocks; it never passes.
+chat="$repo/hosts/chat/provider.sh"
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+set +e; CHAT_PROVIDER_TIMEOUT_SECONDS=1 "$orch" run --root "$d" --host chat --provider "$chat" </dev/null >/dev/null 2>&1; rc=$?; set -e
+[ "$rc" -eq 1 ] || bad "chat provider timeout returned $rc"
+[ "$(st "$d" .run_status)" = BLOCKED ] || bad "chat timeout status $(st "$d" .run_status)"
+[ "$(st "$d" .gates.DEFINE.status)" = PENDING ] || bad 'chat timeout changed the DEFINE gate'
+grep -q 'no chat result within timeout' "$d/.loop/blockers.md" || bad 'chat timeout blocker text missing'
+chat_node="run-TEST-1-$(st "$d" .round)-define"
+chat_brief=$(ls "$d/.loop/scheduler/chat/" | grep -E '^n-[0-9a-f]{12}\.[0-9a-f]{32}\.brief\.json$' | head -n 1)
+[ -n "$chat_brief" ] || bad 'chat provider did not write the brief under an opaque node id and an attempt id'
+chat_base=${chat_brief%.brief.json}
+jq -e --arg l "$chat_node" --arg b "$chat_base" '.label==$l and (.node_id+"."+.attempt_id)==$b and .brief.phase=="DEFINE" and (.brief.prompt|length>0)' "$d/.loop/scheduler/chat/$chat_brief" >/dev/null || bad 'chat brief is not the node brief with its label and attempt'
+[ -f "$d/.loop/scheduler/chat/$chat_base.expired.json" ] || bad 'chat provider did not record the expiry'
+[ ! -e "$d/.loop/scheduler/chat/pending.json" ] || bad 'chat provider left its pending pointer'
+jq -e '.host=="chat" and .outcome=="BLOCKED"' "$d/.loop/evidence/$chat_node/provenance.json" >/dev/null || bad 'chat provenance missing'
+ok 'chat-hosted provider blocks the node when no chat result arrives in time'
+
+# A result written for another attempt of the same node is never taken, and a
+# symlinked chat directory is refused before anything is written through it.
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+mkdir -p "$d/.loop/scheduler/chat"
+(
+  for _ in $(seq 1 100); do
+    f=$(ls "$d/.loop/scheduler/chat/" 2>/dev/null | grep -E '\.brief\.json$' | head -n 1 || :)
+    if [ -n "$f" ]; then
+      node_id=${f%%.*}
+      jq -n --arg n "$node_id" '{schema_version:1,node_id:$n,attempt_id:"00000000000000000000000000000000",result:{schema_version:1,status:"DONE",defect_class:null,blocker:null,notes:"wrong attempt"}}' > "$d/.loop/scheduler/chat/$node_id.00000000000000000000000000000000.result.json"
+      break
+    fi
+    sleep 0.1
+  done
+) &
+set +e; CHAT_PROVIDER_TIMEOUT_SECONDS=3 "$orch" run --root "$d" --host chat --provider "$chat" </dev/null >/dev/null 2>&1; rc=$?; set -e
+wait
+[ "$rc" -eq 1 ] && [ "$(st "$d" .run_status)" = BLOCKED ] || bad "a result for another attempt was taken (rc $rc, $(st "$d" .run_status))"
+[ "$(st "$d" .gates.DEFINE.status)" = PENDING ] || bad 'a result for another attempt changed the DEFINE gate'
+grep -q 'no chat result within timeout' "$d/.loop/blockers.md" || bad 'the node did not time out waiting for its own attempt'
+ls "$d/.loop/scheduler/chat/" | grep -q '\.00000000000000000000000000000000\.result\.json$' || bad 'the wrong-attempt result was not left untouched'
+! ls "$d/.loop/scheduler/chat/" | grep -q '\.consumed\.json$' || bad 'a wrong-attempt result was consumed'
+ok 'chat-hosted provider takes only the result of its own attempt'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+elsewhere=$(mktemp -d)
+mkdir -p "$d/.loop/scheduler"; ln -s "$elsewhere" "$d/.loop/scheduler/chat"
+set +e; CHAT_PROVIDER_TIMEOUT_SECONDS=1 "$orch" run --root "$d" --host chat --provider "$chat" </dev/null >/dev/null 2>&1; rc=$?; set -e
+[ "$rc" -ne 0 ] || bad 'a symlinked chat directory was used'
+[ "$(st "$d" .gates.DEFINE.status)" = PENDING ] || bad 'a symlinked chat directory changed the DEFINE gate'
+[ -z "$(ls -A "$elsewhere")" ] || bad 'the chat provider wrote through a symlinked directory'
+rm -rf "$elsewhere"
+ok 'chat-hosted provider refuses a symlinked chat directory'
+
 echo "1..$n"

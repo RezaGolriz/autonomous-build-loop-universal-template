@@ -7,7 +7,7 @@
   "required": ["schema_version", "work_item_id", "phase", "run_status", "step", "round", "max_rounds", "gate_failures_here", "max_gate_failures", "autonomy", "gates", "last_result", "next_action", "updated_at"],
   "properties": {
     "schema_version": {"const": 1},
-    "work_item_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "work_item_id": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "phase": {"enum": ["DEFINE", "DESIGN", "EXECUTE", "REVIEW", "VALIDATE", "HANDOVER"]},
     "run_status": {"enum": ["PAUSED", "RUNNING", "BLOCKED", "WAITING_FOR_HUMAN", "COMPLETED", "CANCELLED"]},
     "step": {"type": "string", "minLength": 1},

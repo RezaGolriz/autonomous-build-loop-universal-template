@@ -112,6 +112,6 @@ export async function requestApproval(root, args = {}) {
     if (await exists(ready)) { endpoint = await readJson(ready, 'approval endpoint'); break; }
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
-  if (!endpoint) throw new ControlError('APPROVAL_SERVER_FAILED', 'local approval server did not become ready');
+  if (!endpoint) throw new ControlError('APPROVAL_SERVER_FAILED', 'local approval server did not become ready (with a fixed confirmation_page.port another page may still be open on that port)');
   return { ok: true, approval_id: approvalId, setup_digest: plan.setup_digest, confirmation_url: `${endpoint.origin}/review?token=${encodeURIComponent(token)}`, expires_at: request.expires_at, assurance: 'local-user-action', instruction: 'Open the local URL and press Approve. This records a loopback user action, not cryptographic human identity; the setup digest is rechecked when the POST arrives.' };
 }

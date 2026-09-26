@@ -5,7 +5,7 @@
 import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { assertControlPath, atomicJson, now, readJson, sha256 } from './common.mjs';
+import { assertControlPath, atomicJson, isLoopbackAddress, now, pageServerBinding, readJson, sha256 } from './common.mjs';
 import { humanOperations, recordConfirmation, requestDigest, schedulerDirectory } from './confirm.mjs';
 import { settleHumanDecisions } from './human-ops.mjs';
 
@@ -16,6 +16,7 @@ const requestFile = path.join(scheduler, 'operation-requests', `${requestId}.jso
 const runtimeFile = path.join(scheduler, 'operation-runtime', `${requestId}.json`);
 const readyFile = path.join(scheduler, 'operation-runtime', `${requestId}.ready.json`);
 const request = await readJson(requestFile); const runtime = await readJson(runtimeFile);
+const binding = await pageServerBinding(root);
 // The page renders the frozen request that was written, and its digest is the
 // one a receipt will sign. Nothing here is recomputed from live project state.
 const frozenDigest = requestDigest(request);
@@ -40,7 +41,8 @@ function page(token, message = '') {
     + `<p><label for="decision">Type <code>${esc(word)}</code> to confirm this exact decision:</label><br>`
     + `<input id="decision" name="decision" autocomplete="off" spellcheck="false" required></p>`
     + `<button>Confirm this exact decision</button></form>`
-    + `<p>This page is served on this machine only. Recording a decision here means "somebody with access to this computer did it"; it is not proof of who. A project that needs the terminal and nothing else sets <code>human_confirmation</code> to <code>tty-only</code> in <code>.loop/control/policy.json</code>.</p>`;
+    + (isLoopbackAddress(binding.listen) ? `<p>This page is served on this machine only.` : `<p>This page is served on ${esc(binding.listen)} so a device inside your private network or VPN can open it; anyone who can reach that address and has this link can act.`)
+    + ` Recording a decision here means "somebody with access to this computer did it"; it is not proof of who. A project that needs the terminal and nothing else sets <code>human_confirmation</code> to <code>tty-only</code> in <code>.loop/control/policy.json</code>.</p>`;
 }
 
 async function readBody(req, limit = 8192) {
@@ -56,15 +58,17 @@ async function readBody(req, limit = 8192) {
 const server = http.createServer(async (req, res) => {
   try {
     const address = server.address();
-    const expectedHost = `127.0.0.1:${address.port}`;
-    if (req.headers.host !== expectedHost) { res.writeHead(403); res.end('Invalid Host.'); return; }
+    // Only the advertised host (from confirmation_page in the policy) and plain
+    // loopback are answered; anything else is a rebinding attempt or a typo.
+    const host = String(req.headers.host || '').toLowerCase();
+    if (!binding.allowedHosts(address.port).has(host)) { res.writeHead(403); res.end('Invalid Host.'); return; }
     const url = new URL(req.url, 'http://127.0.0.1'); const token = url.searchParams.get('token') || '';
     if (sha256(token) !== request.token_sha256 || token !== runtime.token || Date.parse(request.expires_at) < Date.now()) { res.writeHead(403); res.end('Invalid or expired confirmation link.'); return; }
     if (req.method === 'GET' && url.pathname === '/confirm') {
       res.writeHead(200, headers); res.end(page(token)); return;
     }
     if (req.method === 'POST' && url.pathname === '/confirm') {
-      if (req.headers.origin !== `http://${expectedHost}`) { res.writeHead(403); res.end('Invalid Origin.'); return; }
+      if (String(req.headers.origin || '').toLowerCase() !== `http://${host}`) { res.writeHead(403); res.end('Invalid Origin.'); return; }
       if (confirmState !== 'pending') { res.writeHead(409); res.end('Confirmation link already used.'); return; }
       // The token says which decision; the typed word says a person decided it.
       // Both are checked here, on the server, before anything is recorded.
@@ -97,7 +101,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(405); res.end('Method not allowed.');
   } catch (error) { res.writeHead(409, { 'content-type': 'text/plain; charset=utf-8' }); res.end(error.message); }
 });
-server.listen(0, '127.0.0.1', async () => {
-  const address = server.address(); await atomicJson(readyFile, { origin: `http://127.0.0.1:${address.port}`, pid: process.pid, created_at: now() });
+// A fixed port that is already taken (another page is still open on it) ends
+// this server; the caller reports that the page did not become ready.
+server.on('error', (error) => { process.stderr.write(`confirmation page could not listen on ${binding.listen}:${binding.port}: ${error.message}\n`); process.exit(70); });
+server.listen(binding.port, binding.listen, async () => {
+  const address = server.address(); await atomicJson(readyFile, { origin: binding.origin(address.port), pid: process.pid, created_at: now() });
 });
 setTimeout(() => { if (confirmState !== 'finished') server.close(); }, 15 * 60_000).unref();

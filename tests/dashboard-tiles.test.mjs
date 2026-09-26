@@ -140,6 +140,11 @@ test('a confirmation policy nobody can read is named on the dashboard, not repla
   const repaired = await renderDashboard(root, NONCE);
   assert.doesNotMatch(repaired, /INVALID_POLICY/);
   assert.match(repaired, /Human confirmation mode for this project: <strong>tty-or-local-page<\/strong>/);
+  assert.doesNotMatch(repaired, /Confirmation page links point to/);
+
+  // A page opened to the phone shows the address its links point to.
+  await write(root, '.loop/control/policy.json', JSON.stringify({ schema_version: 1, confirmation_page: { listen: '0.0.0.0', advertise: '192.0.2.10', port: 8765 } }));
+  assert.match(await renderDashboard(root, NONCE), /Confirmation page links point to <code>http:\/\/192\.0\.2\.10:8765<\/code>/);
 });
 
 test('a project-wide hold is shown as a banner, and an unreadable one still is', async (t) => {

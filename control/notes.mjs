@@ -10,6 +10,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { assertControlPath, atomicText, exists, now, readJson } from './common.mjs';
+import { REVIEW_NOT_ISOLATED, recordedReview } from './chat.mjs';
 
 const PHASES = ['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER'];
 const NOTE_LABEL = 'Previous cycle notes (advisory)';
@@ -108,6 +109,7 @@ export function renderNextSteps(data) {
     `- Rounds used: ${data.round} of ${data.max_rounds}`,
     `- Gate results: ${gateResults}`,
     `- Review verdict: ${data.verdict ?? 'none recorded'}`,
+    ...(data.review_not_isolated ? [`- Review independence: ${REVIEW_NOT_ISOLATED}`] : []),
     `- Rework loops: ${data.rework_loops}`,
     `- Open blockers: ${data.open_blockers}`,
     '',
@@ -150,6 +152,7 @@ export async function writeNextSteps(root) {
     max_rounds: Number.isInteger(state.max_rounds) ? state.max_rounds : 0,
     gates,
     verdict,
+    review_not_isolated: (await recordedReview(root, itemId).catch(() => null))?.review_isolated === false,
     rework_loops: failedGates.length,
     open_blockers: blockers,
     priorities: priorities({

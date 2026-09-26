@@ -65,7 +65,9 @@ operation runs, and the record keeps the channel local-http-user with the
 assurance local-user-action. If the run, the proposal or the decision changed in
 the meantime, the confirmation is refused as CONFIRMATION_STALE rather than
 applied to something else. Repeating the same call returns the same link, not a
-second one, and a request expires after fifteen minutes. A project may be set to
+second one, and a request expires after fifteen minutes. The control page is
+the easier place for the human to decide; see "The control page" below. A
+project may be set to
 tty-only in .loop/control/policy.json; these tools then return
 CONFIRMATION_TTY_ONLY with the exact command for the human to run at their own
 terminal. Report that command; do not run it and do not work around it. loop_deauthorize sets an authorization back to
@@ -117,3 +119,61 @@ migrate, perform destructive work, or access secrets.
 
 Worker and reviewer processes may send bounded project inputs to their selected
 model provider. Keep secrets and unrelated project content outside that scope.
+
+## Running the loop inside this chat
+
+Use this when the person wants this chat to do the work instead of a separate
+Claude Code or Codex CLI process. Configure once with loop_configure host chat
+AND an explicit review_host. Ask the person which one: review_host codex (a
+separate process; the review is independent) or review_host chat (this same
+chat; the review is not independently isolated). Never pick for them: without
+review_host, loop_chat_next refuses with CHAT_REVIEW_HOST_REQUIRED. Then:
+
+1. Call loop_chat_next. It starts or continues the run for exactly one node, through
+   the same checks as run, and returns node_id, attempt_id, phase, label and
+   brief. If node_id is null, no node is waiting: follow its next_action.
+2. Spawn a FRESH sub-agent. Give it ONLY brief.prompt, never this conversation
+   or your own notes.
+3. The sub-agent works in the project and returns one JSON object:
+   - DEFINE, DESIGN, HANDOVER: edit only the work item file named in the brief;
+   - EXECUTE: change only the slice's allowed paths from the brief;
+   - REVIEW and VALIDATE: change nothing. REVIEW returns one verdict JSON that
+     copies the challenge values (run_id, work_item_id, nonce, revision,
+     evidence_refs) from the brief exactly.
+   Every other phase returns schema_version 1, status DONE or BLOCKED,
+   defect_class, blocker and notes.
+4. Call loop_chat_submit with node_id, attempt_id and that JSON, unchanged. Each
+   attempt accepts one answer, and accepted is true only once the waiting node
+   took it. CHAT_NODE_STALE means that attempt is over: call loop_chat_next again
+   and use the new attempt_id; never resubmit to an old one.
+5. Read the gate result. Repeat from step 1 until next_action names a human
+   step (a blocker to answer, a handover to read, an acceptance).
+
+The referee is unchanged: the engine still runs the tests, checks every changed
+path, checks the review challenge, and decides the transition. What changes is
+isolation: when this same chat also runs the REVIEW node, the review is
+orchestrated by the builder's chat and is not independently isolated; status
+and check (review_isolated false, review_warning), the dashboard, the handover
+notes and the accept decision say so ("Review was not independently isolated
+(same chat)"). Tell the person that plainly before they accept. For an independent review, set review_host to
+the other tool (Codex from a Claude chat, Claude from a Codex chat), or use the
+separate CLI mode.
+For scheduled runs (loop_tick) use the separate CLI mode: no chat is there to
+call loop_chat_next.
+
+## The control page
+
+1. When the person wants to watch or decide in the browser or on their phone,
+   call loop_serve. It starts the control page or returns the running one.
+2. Hand them its link as a clickable link. It is single-use: it opens the page
+   once, within 10 minutes, and the browser then stays signed in for 12 hours.
+   For another one, call it again. The lasting link is never given to a chat;
+   the person prints it at their own terminal (build-loop serve --show-link).
+   Starting it decides nothing. Never open the link or submit anything on it
+   yourself.
+3. The person types ACCEPT, AUTHORIZE, PROMOTE or RELEASE in its Decisions
+   panel. While it runs, every confirmation_url is a single-use link to it and loop_dashboard
+   returns it too.
+4. Phone access needs confirmation_page in .loop/control/policy.json, which only
+   the person writes (docs/CONFIGURATION.md). Stopping the page or replacing its
+   link is also theirs, at the terminal (build-loop serve --stop, --rotate).

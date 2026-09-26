@@ -1,0 +1,22 @@
+# Keeps the build-loop control page running for one project on Linux, as a
+# systemd user service. Replace every placeholder before installing:
+#   <TEMPLATE_ROOT>  absolute path of this build-loop checkout or package
+#   <PROJECT_ROOT>   absolute path of the project the page shows
+#   <NODE>           absolute path of node 22 or newer (see: command -v node)
+# Install and remove it as described in docs/CONFIGURATION.md
+# ("Keep the control page running"). The access link is printed by
+# build-loop serve --root <PROJECT_ROOT> --show-link; it never appears here.
+[Unit]
+Description=build-loop control page
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=<PROJECT_ROOT>
+ExecStart=<NODE> <TEMPLATE_ROOT>/control/control-page-server.mjs <PROJECT_ROOT>
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

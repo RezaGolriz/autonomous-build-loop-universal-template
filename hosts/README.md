@@ -178,3 +178,23 @@ Shell example:
 
 The mock provider under hosts/mock is deterministic test infrastructure. It is
 not a production worker.
+
+## Chat-hosted provider
+
+hosts/chat/provider.sh calls no model. It lets the chat agent that drives the
+loop through MCP or the CLI (Claude Desktop, the Codex app) do each node with its
+own sub-agent. When the orchestrator runs it for a node, it writes the unchanged
+node brief to `.loop/scheduler/chat/<node_id>.brief.json`, points at it from
+`pending.json`, and waits for `<node_id>.result.json`, which only chat_submit
+writes, once, after checking it against the provider result schema. It prints
+that JSON and exits, so the orchestrator verifies, records evidence and decides
+exactly as for any other provider. `node_id` is the orchestrator's per-node run
+id (`run-<item>-<round>-<phase>`, plus `-slice-<n>` for an EXECUTE slice).
+
+With no result before `CHAT_PROVIDER_TIMEOUT_SECONDS` (default PROVIDER_TIMEOUT,
+else 3600) it returns a BLOCKED result, or for REVIEW exits non-zero, so the run
+blocks. Pause or cancel ends a waiting node the same way.
+
+Select it with configure host chat. With review_host chat the review is
+orchestrated by the same chat as the build and is not independently isolated;
+set review_host to claude or codex for a review in a separate CLI process.

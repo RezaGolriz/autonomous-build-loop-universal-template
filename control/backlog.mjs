@@ -15,7 +15,7 @@ import { readNextSteps } from './notes.mjs';
 
 const PHASES = ['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER'];
 const DEFAULT_EXPIRY_SECONDS = 24 * 60 * 60;
-const itemIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const itemIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const blankGates = () => Object.fromEntries(PHASES.map((phase) => [phase, { status: 'PENDING', evidence_ids: [] }]));
 const oneLine = (value) => value.replace(/[\r\n]+/g, ' ').trim();
@@ -351,7 +351,7 @@ export async function accept(root, args, channel, frozen = null) {
     if (frozen) {
       const live = await acceptanceSubject(loop);
       if (live.work_item_id !== frozen.work_item_id || live.round !== frozen.round
-          || live.handover_evidence_ids.join(' ') !== [...(frozen.handover_evidence_ids ?? [])].join(' ')) {
+          || live.handover_evidence_ids.join('\u0000') !== [...(frozen.handover_evidence_ids ?? [])].join('\u0000')) {
         throw new ControlError('CONFIRMATION_STALE', 'the run changed since this acceptance was confirmed; look at it again and accept the current run');
       }
     }

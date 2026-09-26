@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { constants, promises as fs } from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -181,9 +182,49 @@ export const CONFIRMATION_MODES = Object.freeze(['tty-or-local-page', 'tty-only'
 // spec/schemas/confirmation-policy.schema.json describes is never read as the
 // permissive default: a misspelled key or a null value must not quietly re-open
 // the confirmation page.
+// Where the confirmation page and the setup approval page listen, and which
+// address the link names. Absent, both pages listen on 127.0.0.1 on a random
+// port, as they always did. A person who wants to confirm from a phone inside
+// their own network or VPN writes, by hand:
+//   "confirmation_page": { "listen": "0.0.0.0", "advertise": "192.0.2.10", "port": 8765 }
+// listen is an IP literal, never a hostname. advertise is the host name or IP
+// the phone uses, without a scheme or a port. A page listening anywhere but
+// loopback has to say which address it advertises: the link and the Origin
+// check are built from it.
+const HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+export const isLoopbackAddress = (address) => /^127\./.test(address) || address === '::1';
+export function confirmationPageProblem(page) {
+  const where = '.loop/control/policy.json confirmation_page';
+  if (!page || typeof page !== 'object' || Array.isArray(page)) return `${where} must be an object with listen, advertise and port`;
+  const unknown = Object.keys(page).filter((key) => !['listen', 'advertise', 'port'].includes(key));
+  if (unknown.length) return `${where} has unknown field(s): ${unknown.join(', ')}`;
+  if (typeof page.listen !== 'string' || net.isIP(page.listen) === 0) return `${where}.listen must be an IPv4 or IPv6 address such as 127.0.0.1 or 0.0.0.0, not a host name`;
+  if (Object.hasOwn(page, 'advertise')) {
+    const value = page.advertise;
+    if (typeof value !== 'string' || value.length > 253 || !(net.isIP(value) !== 0 || HOSTNAME.test(value))) return `${where}.advertise must be a host name or IP address without a scheme or a port, such as 192.0.2.10 or mac.example.net`;
+  } else if (!isLoopbackAddress(page.listen)) {
+    return `${where}.advertise is required when listen is not a loopback address: the link and the Origin check are built from it`;
+  }
+  if (Object.hasOwn(page, 'port') && (!Number.isInteger(page.port) || page.port < 1024 || page.port > 65535)) return `${where}.port must be an integer from 1024 to 65535; remove it for a random port`;
+  return null;
+}
+
+// The binding both page servers use: the address to listen on, the host the
+// link names, and the port (0 = random). A missing or unreadable policy gives
+// the loopback default, so a broken file never opens the page to the network.
+export function confirmationPageBinding(policy) {
+  const page = policy && !policy.error ? policy.confirmation_page : null;
+  if (!page) return { listen: '127.0.0.1', advertise: '127.0.0.1', port: 0 };
+  const advertise = page.advertise ?? page.listen;
+  return { listen: page.listen, advertise, port: page.port ?? 0 };
+}
+
+// "host:port" as it appears in a Host header and in an origin; IPv6 in brackets.
+export const hostWithPort = (host, port) => `${net.isIPv6(host) ? `[${host}]` : host}:${port}`;
+
 export function confirmationPolicyProblem(record) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return '.loop/control/policy.json must be a JSON object';
-  const unknown = Object.keys(record).filter((key) => !['schema_version', 'human_confirmation'].includes(key));
+  const unknown = Object.keys(record).filter((key) => !['schema_version', 'human_confirmation', 'confirmation_page'].includes(key));
   if (unknown.length) return `.loop/control/policy.json has unknown field(s): ${unknown.join(', ')}. It must match spec/schemas/confirmation-policy.schema.json`;
   if (record.schema_version !== 1) return '.loop/control/policy.json must be a version 1 record';
   if (Object.hasOwn(record, 'human_confirmation') && typeof record.human_confirmation !== 'string') {
@@ -191,6 +232,7 @@ export function confirmationPolicyProblem(record) {
   }
   const mode = Object.hasOwn(record, 'human_confirmation') ? record.human_confirmation : 'tty-or-local-page';
   if (!CONFIRMATION_MODES.includes(mode)) return `.loop/control/policy.json human_confirmation must be one of ${CONFIRMATION_MODES.join(', ')}`;
+  if (Object.hasOwn(record, 'confirmation_page')) return confirmationPageProblem(record.confirmation_page);
   return null;
 }
 
@@ -208,7 +250,23 @@ export async function confirmationPolicy(root) {
   const message = record.__unreadable ?? confirmationPolicyProblem(record);
   if (message) return { schema_version: 1, human_confirmation: 'tty-only', source: 'invalid-policy', error: { code: 'INVALID_POLICY', message } };
   const mode = Object.hasOwn(record, 'human_confirmation') ? record.human_confirmation : 'tty-or-local-page';
-  return { schema_version: 1, human_confirmation: mode, source: 'policy-file', error: null };
+  const page = record.confirmation_page;
+  return {
+    schema_version: 1, human_confirmation: mode, source: 'policy-file', error: null,
+    ...(page ? { confirmation_page: { listen: page.listen, advertise: page.advertise ?? page.listen, port: page.port ?? 0 } } : {}),
+  };
+}
+
+// What the confirmation page and the setup approval page servers need: where to
+// listen and which Host values they answer to. The advertised host and plain
+// loopback are both accepted, so the machine's own browser keeps working.
+export async function pageServerBinding(root) {
+  const binding = confirmationPageBinding(await confirmationPolicy(root).catch(() => null));
+  return {
+    ...binding,
+    origin: (port) => `http://${hostWithPort(binding.advertise, port)}`.toLowerCase(),
+    allowedHosts: (port) => new Set([hostWithPort(binding.advertise, port).toLowerCase(), `127.0.0.1:${port}`]),
+  };
 }
 
 // The same reading for callers that would rather not continue at all than

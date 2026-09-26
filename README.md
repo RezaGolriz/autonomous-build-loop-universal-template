@@ -109,8 +109,8 @@ These menu steps follow [Claude’s official installation guide](https://support
 1. **Prepare.** You describe the work and choose a builder and independent reviewer. The agent configures those providers and prepares the scope, verification commands, and limits. Build Loop returns a **paused candidate** for you to read. It does **not** return a dashboard link at this point.
 2. **Request approval.** The request‑approval step (`loop_request_approval`) returns a **confirmation URL**. **A human must open and submit it personally.** The agent cannot do this for you.
 3. **Activate.** Build Loop runs positive and negative probes against a **disposable copy** of your project, then inspects whether the job completed as expected.
-4. **Start.** You choose the **run mode**.
-5. **Dashboard.** A separate dashboard request returns a **read‑only** dashboard URL. It **expires after 30 minutes**. Reload it for current state; request a fresh link after expiry. The dashboard is never used for approval.
+4. **Start.** You choose the **run mode**. A worker then edits the project, one step (a *node*) at a time: either a separate command‑line worker (the Codex or Claude CLI) or a fresh helper agent inside this chat.
+5. **Control page.** `build-loop serve` (or `loop_serve` from chat) starts one long‑lived page and gives you a **single‑use link** to it: it opens the page once, within 10 minutes, and your browser then stays signed in for 12 hours. It shows the state, and its Decisions panel is where you type the word to accept, authorize, promote or release. Starting it decides nothing.
 
 ```mermaid
 flowchart LR
@@ -120,16 +120,36 @@ flowchart LR
     P --> A[Human setup<br/>approval]
     A --> V[Disposable<br/>activation probes]
     V --> R[Step or bounded<br/>run]
-    R --> W[Worker CLI edits<br/>the target project]
-    W --> Q[Independent review<br/>and validation]
+    R --> W{A worker edits<br/>the project}
+    W -->|option 1| W1[Command-line worker<br/>Codex or Claude CLI]
+    W -->|option 2| W2[Fresh sub-agent<br/>in this chat]
+    W1 --> Q[Independent review<br/>and validation]
+    W2 --> Q
     Q -->|Rework needed| R
     Q -->|Gates passed| O[Handover]
-    M -. read-only state .-> D[HTML status<br/>dashboard]
-    U -. reload / inspect .-> D
+    M -. state .-> D[Control page<br/>stable link while<br/>the server runs]
+    U -. watch / type the word .-> D
 ```
 
-The chat is where you make decisions and request actions. The dashboard only
-shows recorded state; it cannot approve setup, start a run, or change files.
+The chat is where you ask for actions. The control page shows recorded state,
+and it is one of the two places where you make the human decisions (the other
+is your terminal). You type the word yourself; the agent never does.
+
+**Running the work inside the chat.** Instead of starting a separate
+command‑line worker, the chat itself can do each step. Set it up with
+`configure`, `host` `chat`, and **your choice of reviewer** in `review_host`:
+`claude` or `codex` (a separate process, independent) or `chat` (this same
+chat). There is no default: without that choice `loop_chat_next` refuses with
+`CHAT_REVIEW_HOST_REQUIRED`. The chat asks for the next step
+(`loop_chat_next`), which returns a `node_id` and a fresh `attempt_id`; it hands
+only that step's instructions to a fresh sub‑agent and passes the answer back
+with both ids (`loop_chat_submit`). An answer counts only when the waiting step
+took it. The referee does not change: the engine still runs the tests and checks
+every changed file. One honest limit: if the same chat also does the review,
+that review is **not independent**. Status, check, the handover notes and the
+accept decision then say so: "Review was not independently isolated (same
+chat)". Pick the other tool (Codex from a Claude chat, Claude from a Codex chat)
+to keep it independent. Details: [Who does the node work](docs/LOOP-MODES.md#who-does-the-node-work-a-separate-cli-process-or-this-chat).
 
 ### Run modes
 
@@ -182,6 +202,9 @@ that page, bound to that one operation, that one item and the exact decision tha
 was frozen when the link was made, and the agent has to hand the link to you
 rather than open it. If the run, the proposal or the decision changes in the
 meantime, the confirmation is refused rather than applied to something else.
+The easiest place to type these words is the control page (see
+[Use the control page](#use-the-control-page)); it also works from your phone
+inside your home network or VPN.
 
 Both routes are recorded with the assurance `local-user-action`: a person with
 access to this machine did it. Be honest about what that is worth — an agent
@@ -221,34 +244,59 @@ costs nothing. Where these ideas come from:
 | Cadence and scheduled runs | Implemented — `tick`, driven by a client schedule or `cron` |
 | Discovery into a triaged inbox (scout loop) | Implemented — `scout`, `inbox_list`, `promote`, `discard` |
 | A note carried from one cycle to the next | Implemented — advisory only, approves nothing |
+| A control page to watch the project and type decisions, also from a phone on your private network | Implemented — `serve`; without it (and without `confirmation_page`), `dashboard` opens the older read‑only page that stops after 30 minutes |
+| Doing the node work inside the chat instead of a separate CLI | Implemented — `configure` with `host` `chat` and an explicit `review_host`, then `chat_next` and `chat_submit` (with `node_id` and `attempt_id`); the review is independent only when `review_host` is another tool |
 | Merge, push, deploy, release, device flashing, live migration | Not automated, by design — human actions |
 | Native Windows | Not supported; WSL has not been validated |
 
-## Understand the dashboard
+## Use the control page
 
-Ask for it from the target-project chat at any time, including before setup:
+The control page is one small web page on your own computer. It shows the state
+of the project, and its **Decisions** panel is where you type the word for a
+human decision. Start it once, from the terminal or from chat:
 
-> Show the Build Loop dashboard for this project.
+```bash
+build-loop serve --root /absolute/path/to/target-project
+```
 
-The agent calls `loop_dashboard` and returns a local URL. Open the link in your
-browser. It is read-only, and its local server stops 30 minutes after the link
-is issued. The page shows the state recorded when you load it. Reload for newer
-data; ask for a fresh link after expiry. Keep the link private because the page
-contains project paths, work-item text, blockers, and evidence summaries.
+> Start the Build Loop control page and give me its link.
 
-![Annotated example of the Build Loop dashboard, showing status, workflow, loop selector, current job, blockers, evidence, and work item](docs/assets/dashboard-overview.svg)
+(The agent calls `loop_serve`.) You get a **single‑use link**. It opens the page
+once, within 10 minutes; your browser then stays signed in for 12 hours. Ask
+again whenever you need a fresh one. A chat never sees the page's lasting key:
+that key stays in a private file on your machine. If you want a link you can
+bookmark, run `build-loop serve --root … --show-link` yourself at a terminal; it
+prints the lasting link, and only there. Keep any link private, because the page
+shows project paths, work‑item text, blockers and evidence. `--rotate` makes a
+new key (old links and sessions stop working), `--stop` ends the page. Asking for
+the dashboard (`loop_dashboard`) returns a fresh single‑use link while the page
+runs.
+
+**From your phone.** Set `confirmation_page` in `.loop/control/policy.json`, and
+the link works from your phone inside your home network or a VPN. The page is
+plain web traffic, so never open it to the internet. How to set it, and how to
+keep the page running after a restart:
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md#the-policy-file-who-may-decide-and-from-where).
+
+**Deciding.** When a decision waits, the Decisions panel shows exactly what it
+will do. You type the word — `ACCEPT`, `AUTHORIZE`, `PROMOTE` or `RELEASE` — and
+press the button. Only then is it recorded. Typing the word records *your
+decision*; it does not mean the run succeeded.
+
+![Annotated example of the Build Loop control page, showing status, the Decisions panel with a word to type, workflow, loop selector, current job, blockers, evidence, and work item](docs/assets/dashboard-overview.svg)
 
 *Illustrated example; your project name, work item, phase, evidence, and blocker
 text will be different.*
 
 Read the page from top to bottom:
 
-| Dashboard area | What it tells you | What you do next |
+| Page area | What it tells you | What you do next |
 |---|---|---|
-| **Status** | One literal state: `NOT CONFIGURED`, `SETUP CANDIDATE`, `PAUSED`, `RUNNING`, `BLOCKED`, `WAITING_FOR_HUMAN`, `COMPLETED`, or `CANCELLED` | Follow the displayed next action; use chat for every change |
+| **Status** | One literal state: `NOT CONFIGURED`, `SETUP CANDIDATE`, `PAUSED`, `RUNNING`, `BLOCKED`, `WAITING_FOR_HUMAN`, `COMPLETED`, or `CANCELLED` | Follow the displayed next action |
+| **Decisions** | A decision that waits for you (accept, authorize, promote, release), frozen exactly as it was asked for; or buttons to prepare one, and **Hold** to stop everything | Read it, type its word and press the button. Hold needs no word |
 | **Workflow** | Which of DEFINE, DESIGN, EXECUTE, REVIEW, VALIDATE, and HANDOVER is current and which gates have evidence. Gate states include `PASSED`, `FAILED`, and `PENDING`. **Round** counts workflow transitions and rework against a separate safety cap | A failed gate normally means rework; a pending gate has not been completed yet |
 | **Choose your next loop** | Builds a prompt for a work kind and either one step or a bounded run | Copy the generated prompt into Codex or Claude; selecting an option alone changes nothing |
-| **Current job** | The most recently recorded job and its node count. A bounded run's node limit is separate from the workflow round limit | Reload to see newer records; treat it as progress information, not proof that a gate passed |
+| **Current job** | The most recently recorded job, its node count, and how it runs (a separate CLI, or chat‑hosted and who reviews). A bounded run's node limit is separate from the workflow round limit | Reload to see newer records; treat it as progress information, not proof that a gate passed |
 | **Blockers** | A missing decision or hard gate failure | Answer the open question in chat, then ask the agent to resume |
 | **Evidence** | The recorded checks and their PASSED, FAILED, or BLOCKED results | Use the phase gates for the overall result; individual failures can belong to an earlier rework attempt |
 | **Work item** | Scope, acceptance criteria, slices, and handover notes | Expand it when you need to check what the agent is allowed to do |
@@ -352,7 +400,7 @@ The original shell entry point remains fully supported alongside the plugin, inc
 
 - [docs/INSTALLATION.md](docs/INSTALLATION.md) — every install path, including raw MCP JSON
 - [docs/LOOP-MODES.md](docs/LOOP-MODES.md) — the four kinds of loop, run modes, work kinds, what is never automatic
-- [docs/DASHBOARD.md](docs/DASHBOARD.md) — read‑only dashboard and link expiry
+- [docs/DASHBOARD.md](docs/DASHBOARD.md) — the control page, phone access, and other ways to see the state
 - [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) — the six phases in depth
 - [docs/VALIDATION.md](docs/VALIDATION.md) — probes, disposable copies, completion checks
 - [docs/SHELL-ORCHESTRATOR.md](docs/SHELL-ORCHESTRATOR.md) — shell usage

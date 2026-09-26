@@ -34,6 +34,8 @@ required by operations that need structured arguments. Results are JSON;
 | task | loop_task | Create the next bounded work item after completion | Never by itself; refused with PROJECT_ON_HOLD while the project is on hold |
 | start | loop_start | Create a durable bounded job from an activated state | May start authorized work; refused with AUTHORIZATION_REVOKED while the item's authorization is PAUSED |
 | run | loop_run | Advance a bounded number of nodes | Declared project verifiers only; refused with AUTHORIZATION_REVOKED while the item's authorization is PAUSED |
+| chat_next | loop_chat_next | Chat-hosted execution (host chat): start or continue the run for one node, through the same checks as run, and return the waiting node's brief; the same brief again while it waits | Declared project verifiers only, run by the engine after the node; refused wherever run is refused |
+| chat_submit | loop_chat_submit | Hand the chat sub-agent's result or verdict for the waiting node to the engine, once; refused as CHAT_NODE_UNKNOWN, CHAT_NODE_ALREADY_SUBMITTED or CHAT_NODE_STALE otherwise; returns the gate result and whether another node waits | Declared project verifiers only, run by the engine |
 | status | loop_status | Read project and job progress | Never |
 | answer | loop_answer | Record one scoped response to a blocker | Never by itself |
 | pause | loop_pause | Stop further job advancement while preserving state | No new commands |
@@ -151,7 +153,9 @@ secrets. The accepted operation inputs are:
 | Operation | Required fields | Optional fields |
 |---|---|---|
 | demo | kind: docs or python | — |
-| configure | host | provider_path, cli_path, review_host, review_provider_path, review_cli_path |
+| configure | host (codex, claude, mock or chat) | provider_path, cli_path, review_host, review_provider_path, review_cli_path |
+| chat_next | — | — |
+| chat_submit | node_id, result | — |
 | prepare | request, acceptance_criteria, out_of_scope, allowed_paths, negative_control | frozen_paths, adapter, adapter_overrides, work_item_id, max_rounds, max_gate_failures, max_wall_seconds, autonomy, replace_candidate |
 | task | request, acceptance_criteria, out_of_scope, allowed_paths | frozen_paths, work_item_id |
 | start, run, resume | request_id and either run_mode or max_nodes | explicit max_nodes with bounded mode |
