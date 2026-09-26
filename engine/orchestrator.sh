@@ -463,7 +463,7 @@ phase_task(){ case "$1" in
   DESIGN) echo 'Write the design and the independently provable execution slices into the work item.';;
   EXECUTE) echo 'Produce the declared artifact for the current slice inside the allowed paths only.';;
   REVIEW) echo 'Review the exact durable change and the referenced evidence, then return a verdict.';;
-  VALIDATE) echo 'Run the configured verification commands and confirm acceptance and regression behaviour. This node is READ-ONLY: change no file at all (not even the work item); the engine records the evidence and rejects any change in this phase.';;
+  VALIDATE) echo 'Confirm acceptance and regression behaviour by reading the work item, the change and its tests: name the test or check that covers each acceptance criterion. Do not run commands and do not block for lack of a shell: after this node the engine itself runs the configured verification commands and records their evidence. This node is READ-ONLY: change no file at all (not even the work item); the engine rejects any change in this phase.';;
   HANDOVER) echo 'Record revision, evidence, limitations and the next human decision in the work item.';;
 esac; }
 phase_success(){ case "$1" in
