@@ -486,7 +486,7 @@ print_status(){
 
 phase_task(){ case "$1" in
   DEFINE) echo 'Write testable acceptance criteria and explicit exclusions into the work item.';;
-  DESIGN) echo 'Write the design and the independently provable execution slices into the work item. The execution slices section must hold exactly this table layout, one row per slice: | Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |. Allowed paths and Frozen paths contain only comma-separated path patterns in backticks (write none when nothing is frozen); put any description of the slice into the Proof column or the Design section, never into the path columns. The engine enforces each slice'"'"'s allowed paths from column 2.';;
+  DESIGN) echo 'Write the design and the independently provable execution slices into the work item. The execution slices section must hold exactly this table layout, one row per slice: | Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |. Allowed paths and Frozen paths contain only comma-separated path patterns in backticks (write none when nothing is frozen); put any description of the slice into the Proof column or the Design section, never into the path columns. The engine enforces each slice'"'"'s allowed paths from column 2. A slice that ends by asking a person for a device or acceptance test must also allow the paths a fix after that test may need (for example the app sources), so a failed test can be repaired within the same slice.';;
   EXECUTE) echo 'Produce the declared artifact for the current slice inside the allowed paths only.';;
   REVIEW) echo 'Review the exact durable change and the referenced evidence, then return a verdict. Classify each finding by what has to change: artifact when the implementation, its tests or its documentation (decision records, work item sections, comments) are wrong, stale or incomplete; design when the planned slices or architecture are wrong; requirement only when the acceptance criteria or scope themselves are wrong or missing.';;
   VALIDATE) echo 'Confirm acceptance and regression behaviour by reading the work item, the change and its tests: name the test or check that covers each acceptance criterion. Do not run commands and do not block for lack of a shell: after this node the engine itself runs the configured verification commands and records their evidence. This node is READ-ONLY: change no file at all (not even the work item); the engine rejects any change in this phase.';;
@@ -1009,6 +1009,10 @@ if [ "$phase" = REVIEW ]; then
   [ "$vrc" -le 1 ] || go_blocked 'invalid verdict'
   ev_ids="review-$exec_run"
   [ "$vrc" -eq 0 ] || { passed=0; defect=$(jq -r '[.findings[]?|select(.disposition=="OPEN" and (.severity=="BLOCKING" or .severity=="HIGH"))][0].category // "artifact"' "$tmp/verdict.json"); }
+  # Only requirement, design and artifact have a rework route. Any other
+  # category a reviewer uses (for example "safety") means the change itself has
+  # to be fixed, so it goes back to EXECUTE instead of stopping the engine.
+  case "${defect:-}" in requirement|design|artifact|'') ;; *) defect=artifact ;; esac
 else
   set +e; call_provider "$tmp/brief.json" "$tmp/result.json" "$perr"; prc=$?; set -e
   assert_provider_preserved_supervisor_state

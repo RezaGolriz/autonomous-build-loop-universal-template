@@ -174,6 +174,24 @@ classify stale or incomplete documentation of the change (decision records,
 work item sections) as artifact, so such a finding returns to EXECUTE instead
 of restarting the item.
 
+Since version 0.6.1 a finding with any other category (for example safety)
+also returns to EXECUTE; earlier versions stopped with "illegal rework
+transition" and left the run RUNNING without a job.
+
+## A device test failed and the slice cannot fix it
+
+A slice that ends by asking a person for a device or acceptance test must also
+allow the paths a fix after that test needs; since version 0.6.1 the DESIGN
+brief says so. For a work item designed earlier, widen that slice's allowed
+paths in the work item (within the authorized scope) before resuming.
+
+## A commit during a work item makes REVIEW fail with stale evidence
+
+Evidence is bound to the git revision. A commit made while an item is between
+EXECUTE and REVIEW moves HEAD, and REVIEW then stops with "stale transition
+evidence". Commit human-side changes only between work items; to recover,
+cancel, hand over the cancellation and create the item again under its id.
+
 ## Every start fails with DISTRIBUTION_CHANGED after a package update
 
 The activation record binds the build-loop package files it was approved with.

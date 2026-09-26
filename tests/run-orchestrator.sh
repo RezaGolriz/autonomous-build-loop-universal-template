@@ -64,6 +64,19 @@ MOCK_SCRIPT=$(script "$d" '{"REVIEW":"fail:artifact"}') "$orch" loop --root "$d"
 ok 'failed independent review routes an artifact defect back to EXECUTE'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
+set +e; MOCK_SCRIPT=$(script "$d" '{"REVIEW":"fail:safety"}') "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 5 >/dev/null 2>"$d/stderr.txt"; set -e
+grep -q 'illegal rework transition' "$d/stderr.txt" && bad 'an unknown review category stopped the engine'
+[ "$(st "$d" .phase)" = EXECUTE ] || bad "unknown-category rework phase $(st "$d" .phase)"
+[ "$(st "$d" '.gates.REVIEW.status')" = FAILED ] || bad 'review gate not FAILED for an unknown category'
+ok 'a review finding with an unknown category goes back to EXECUTE instead of stopping the engine'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+dd="$(mktemp -d "${TMPDIR:-/tmp}/loop-design-dump.XXXXXX")/brief.json"; s=$(script "$d" '{"DESIGN":"block"}')
+set +e; MOCK_SCRIPT=$s MOCK_DUMP="$dd" "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 2 >/dev/null; set -e
+jq -e '.task|test("fix after that test")' "$dd.DESIGN" >/dev/null || bad 'the DESIGN brief does not ask for repair paths in human-test slices'
+ok 'the DESIGN brief asks human-test slices to allow the paths a repair needs'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
 MOCK_SCRIPT= "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 4 >/dev/null
 [ "$(st "$d" .phase)" = REVIEW ] || bad 'invalid-verdict fixture did not reach REVIEW'
 bad_review=$(mktemp "${TMPDIR:-/tmp}/loop-bad-review.XXXXXX")
