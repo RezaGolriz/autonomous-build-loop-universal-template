@@ -177,3 +177,5 @@ call loop_chat_next.
 4. Phone access needs confirmation_page in .loop/control/policy.json, which only
    the person writes (docs/CONFIGURATION.md). Stopping the page or replacing its
    link is also theirs, at the terminal (build-loop serve --stop, --rotate).
+5. With confirmation_page set (or control_page_autostart true) the page starts
+   itself on every tick, decision, dashboard call and chat connection; no service is needed.

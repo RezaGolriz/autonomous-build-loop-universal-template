@@ -1,7 +1,7 @@
 import { loopOptions, resolveRunArgs } from './loop-options.mjs';
 import { openDashboard } from './dashboard.mjs';
 import { ControlError, confirmationPolicy, publicError, resolveRoot } from './common.mjs';
-import { runningControlPage, serveControlPage } from './control-page.mjs';
+import { autostartControlPage, controlPageAutostart, runningControlPage, serveControlPage } from './control-page.mjs';
 import { requestApproval as approvalRequest } from './approval.mjs';
 import { createDemo, inspectProject, prepareProject, prepareRebind } from './setup.mjs';
 import { answerBlocker, completeHandover, configureHost, createTask, doctor, launchActivation, launchJob, setIntent, status } from './jobs.mjs';
@@ -31,7 +31,24 @@ export async function requestApproval(root, args = {}) {
   catch (error) { return publicError(error); }
 }
 
+// Operations that bring the control page up when the policy asks for autostart
+// (controlPageAutostart), done here so no operation has to know about it. The
+// human decisions do it before they run, so the link they hand out names the
+// running page rather than a one-request page; the others after they succeed.
+// tick does it itself, first thing, even on a held project.
+const AUTOSTART_BEFORE = Object.freeze(['accept', 'authorize', 'promote', 'release']);
+const AUTOSTART_AFTER = Object.freeze(['start', 'run', 'resume', 'hold', 'backlog_add', 'scout', 'chat_next', 'chat_submit']);
+
 export async function dispatch(root, operation, args = {}, context = {}) {
+  const result = await operate(root, operation, args, context);
+  if (AUTOSTART_AFTER.includes(operation) && result?.ok !== false) {
+    const resolved = await resolveRoot(root).catch(() => null);
+    if (resolved) await autostartControlPage(resolved, { reason: operation });
+  }
+  return result;
+}
+
+async function operate(root, operation, args, context) {
   try {
     root = await resolveRoot(root); validateOperation(operation, args);
     if (operation === 'demo' && !['docs', 'python'].includes(args.kind)) throw new ControlError('INVALID_INPUT', 'kind must be docs or python');
@@ -40,11 +57,13 @@ export async function dispatch(root, operation, args = {}, context = {}) {
     // A project-wide hold stops every automated entry point, whatever the work
     // item is called. Reading stays available, and so do cancel and handover:
     // they only stop work or write down what happened. See control/hold.mjs.
-    if (HELD_OPERATIONS.includes(operation)) await assertNotHeld(root, humanChannel(context), operation);
+    // tick checks the hold itself, after it has brought the control page up.
+    if (HELD_OPERATIONS.includes(operation) && operation !== 'tick') await assertNotHeld(root, humanChannel(context), operation);
+    if (AUTOSTART_BEFORE.includes(operation)) await autostartControlPage(root, { reason: operation });
     switch (operation) {
       case 'options': return loopOptions();
       case 'dashboard': return await dashboard(root);
-      case 'serve': return await serveControlPage(root);
+      case 'serve': return await serveControlPage(root, { reason: 'serve' });
       case 'inspect': return await inspectProject(root);
       case 'doctor': return await doctor(root);
       case 'demo': return await createDemo(root, args.kind);
@@ -90,12 +109,12 @@ export async function dispatch(root, operation, args = {}, context = {}) {
 }
 
 // The dashboard is the control page when the project asks for one (policy
-// confirmation_page) or one is already running; otherwise the short-lived
+// confirmation_page or control_page_autostart) or one is already running; otherwise the short-lived
 // read-only page, exactly as before.
 async function dashboard(root) {
   const policy = await confirmationPolicy(root).catch(() => null);
-  if ((policy && !policy.error && policy.confirmation_page) || await runningControlPage(root).catch(() => null)) {
-    return serveControlPage(root);
+  if (controlPageAutostart(policy) || (policy && !policy.error && policy.confirmation_page) || await runningControlPage(root).catch(() => null)) {
+    return serveControlPage(root, { reason: 'dashboard' });
   }
   return openDashboard(root);
 }

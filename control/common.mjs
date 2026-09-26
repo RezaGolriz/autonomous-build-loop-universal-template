@@ -224,7 +224,7 @@ export const hostWithPort = (host, port) => `${net.isIPv6(host) ? `[${host}]` : 
 
 export function confirmationPolicyProblem(record) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return '.loop/control/policy.json must be a JSON object';
-  const unknown = Object.keys(record).filter((key) => !['schema_version', 'human_confirmation', 'confirmation_page'].includes(key));
+  const unknown = Object.keys(record).filter((key) => !['schema_version', 'human_confirmation', 'confirmation_page', 'control_page_autostart'].includes(key));
   if (unknown.length) return `.loop/control/policy.json has unknown field(s): ${unknown.join(', ')}. It must match spec/schemas/confirmation-policy.schema.json`;
   if (record.schema_version !== 1) return '.loop/control/policy.json must be a version 1 record';
   if (Object.hasOwn(record, 'human_confirmation') && typeof record.human_confirmation !== 'string') {
@@ -232,6 +232,7 @@ export function confirmationPolicyProblem(record) {
   }
   const mode = Object.hasOwn(record, 'human_confirmation') ? record.human_confirmation : 'tty-or-local-page';
   if (!CONFIRMATION_MODES.includes(mode)) return `.loop/control/policy.json human_confirmation must be one of ${CONFIRMATION_MODES.join(', ')}`;
+  if (Object.hasOwn(record, 'control_page_autostart') && typeof record.control_page_autostart !== 'boolean') return '.loop/control/policy.json control_page_autostart must be true or false; remove the key to use the default';
   if (Object.hasOwn(record, 'confirmation_page')) return confirmationPageProblem(record.confirmation_page);
   return null;
 }
@@ -254,6 +255,7 @@ export async function confirmationPolicy(root) {
   return {
     schema_version: 1, human_confirmation: mode, source: 'policy-file', error: null,
     ...(page ? { confirmation_page: { listen: page.listen, advertise: page.advertise ?? page.listen, port: page.port ?? 0 } } : {}),
+    ...(typeof record.control_page_autostart === 'boolean' ? { control_page_autostart: record.control_page_autostart } : {}),
   };
 }
 

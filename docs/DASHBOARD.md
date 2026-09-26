@@ -91,8 +91,31 @@ it"; it is not proof of who. A project that wants the terminal and nothing else
 sets `human_confirmation` to `tty-only`, and the panel then says so and decides
 nothing.
 
-To keep the page running after a restart of the computer, install it as a
-service: see [Keep the control page running](CONFIGURATION.md#keep-the-control-page-running).
+**It starts itself.** You do not need to install a service. The page starts
+itself whenever the loop does something (a tick, a decision, opening the
+dashboard from chat) and after a reboot the next tick brings it back. Opening
+the chat connection does it too.
+
+This is on by default when `.loop/control/policy.json` sets `confirmation_page`,
+and off otherwise. Say it yourself with `control_page_autostart`:
+
+```json
+{ "schema_version": 1, "control_page_autostart": true }
+```
+
+`true` turns it on even without `confirmation_page`; `false` turns it off even
+with it (then start the page with `build-loop serve`). Anything other than
+`true` or `false` makes the policy file invalid. Every check writes one line to
+`.loop/scheduler/control-page.log` (`started`, `already-running` or `failed`); a
+failure never stops the tick or the decision. Reading (`check`, `status`) never
+starts it. This works with the Node control plane only; the Bash orchestrator
+does not start the page.
+
+`/healthz` on the page answers `ok` and nothing else, without a login; the loop
+uses it to see that the page is alive. Every other address needs the login.
+
+A system service is still possible, but not needed: see
+[Keep the control page running](CONFIGURATION.md#keep-the-control-page-running).
 
 ## Other ways to look at the state
 

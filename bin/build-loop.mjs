@@ -61,7 +61,7 @@ if (operation === 'serve') {
     if (serveMode === 'stop') result = await stopControlPage(root);
     else if (serveMode === 'rotate') result = await rotateControlPageToken(root, { showLink: tty });
     else if (serveMode === 'show-link' && !tty) result = { ok: false, error: { code: 'TTY_REQUIRED', message: '--show-link prints the durable link only at an interactive terminal; without it, serve prints a single-use link' } };
-    else result = await serveControlPage(root, { showLink: serveMode === 'show-link' });
+    else result = await serveControlPage(root, { showLink: serveMode === 'show-link', reason: 'serve' });
   } catch (error) { result = { ok: false, error: { code: error.code || 'CONTROL_PAGE_FAILED', message: error.message } }; }
 } else if (operation === 'request-approval') result = await requestApproval(root, input);
 else if (operation === 'approve') {

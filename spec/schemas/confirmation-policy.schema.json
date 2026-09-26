@@ -13,6 +13,10 @@
       "default": "tty-or-local-page",
       "description": "tty-or-local-page: a word typed at an interactive terminal, or a word typed on the local confirmation page. tty-only: the terminal and nothing else; chat tool calls and --input are refused with CONFIRMATION_TTY_ONLY."
     },
+    "control_page_autostart": {
+      "type": "boolean",
+      "description": "Whether the loop starts the long-lived control page by itself when it is not running (on every tick, every state-changing operation, the dashboard and the chat connection). Absent: true when confirmation_page is set, false otherwise."
+    },
     "confirmation_page": {
       "type": "object",
       "additionalProperties": false,

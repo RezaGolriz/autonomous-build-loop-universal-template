@@ -300,8 +300,13 @@ const server = http.createServer(async (req, res) => {
     let url;
     try { url = new URL(req.url, `http://${host}`); } catch { plain(res, 400, 'Invalid URL.'); return; }
     baseHeaders(res);
+    // Health: no session, and nothing but `ok`. With ?pid=<n> it answers `ok`
+    // only when n is this process, so a caller can tell the recorded page from
+    // another program that took its port, without learning anything new.
     if (req.method === 'GET' && url.pathname === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, pid: process.pid })); return;
+      const asked = url.searchParams.get('pid');
+      if (asked !== null && asked !== String(process.pid)) { plain(res, 409, 'no'); return; }
+      plain(res, 200, 'ok'); return;
     }
     if (req.method === 'GET' && url.pathname === '/' && url.searchParams.has('b')) {
       const tokenSha = await redeemBootstrapToken(root, url.searchParams.get('b'));

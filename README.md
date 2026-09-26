@@ -274,9 +274,10 @@ runs.
 
 **From your phone.** Set `confirmation_page` in `.loop/control/policy.json`, and
 the link works from your phone inside your home network or a VPN. The page is
-plain web traffic, so never open it to the internet. How to set it, and how to
-keep the page running after a restart:
+plain web traffic, so never open it to the internet. How to set it:
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md#the-policy-file-who-may-decide-and-from-where).
+You do not need a service to keep the page running: once `confirmation_page` is
+set, the page starts itself on the next tick or decision, also after a reboot.
 
 **Deciding.** When a decision waits, the Decisions panel shows exactly what it
 will do. You type the word — `ACCEPT`, `AUTHORIZE`, `PROMOTE` or `RELEASE` — and

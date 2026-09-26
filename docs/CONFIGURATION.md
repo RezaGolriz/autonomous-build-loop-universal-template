@@ -156,6 +156,10 @@ computer's private or VPN address instead of the documentation address
   firewall rule needs a fixed one. With a fixed port only one page can use it:
   while the control page runs, approve a new setup at the terminal with
   `build-loop approve`.
+- `control_page_autostart` is optional, `true` or `false`. It says whether the
+  loop starts the control page by itself. Left out, it is `true` when
+  `confirmation_page` is set and `false` otherwise. See
+  [Keep the control page running](#keep-the-control-page-running).
 
 The file must match
 [spec/schemas/confirmation-policy.schema.json](../spec/schemas/confirmation-policy.schema.json)
@@ -175,9 +179,16 @@ promise: [The control page](DASHBOARD.md#the-control-page).
 
 ## Keep the control page running
 
-`build-loop serve` does not come back by itself after the computer restarts. To
-keep it running, install it as a service. Two examples ship with the package.
-In each, replace `<TEMPLATE_ROOT>` (where build-loop is), `<PROJECT_ROOT>` (your
+You do not need to do anything. With `control_page_autostart` in effect (on by
+default when `confirmation_page` is set), the page starts itself on the next
+tick, decision, dashboard request or chat connection, also after a reboot. See
+[It starts itself](DASHBOARD.md#the-control-page).
+
+### Optional: keep it running as a system service
+
+This is not required. It only keeps the page up between ticks, for example
+right after a reboot. The launchd file is for macOS only, the systemd file for
+Linux only. Two examples ship with the package. In each, replace `<TEMPLATE_ROOT>` (where build-loop is), `<PROJECT_ROOT>` (your
 project) and `<NODE>` (what `command -v node` prints) with real absolute paths.
 
 | | macOS (launchd) | Linux (systemd user service) |
@@ -193,6 +204,10 @@ One service serves one project; for a second one, copy the file under another
 name (and another label in the plist). `build-loop serve --stop` ends the page
 until the service is started again. The access key never goes into these files;
 it stays in `<PROJECT_ROOT>/.loop/scheduler/control-page.token`.
+
+Portable alternative on any system with cron: add
+`@reboot <NODE> <TEMPLATE_ROOT>/bin/build-loop.mjs serve --root <PROJECT_ROOT> >/dev/null 2>&1`
+with `crontab -e`.
 
 ## Repository privacy
 

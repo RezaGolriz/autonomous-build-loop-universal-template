@@ -10,7 +10,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { dispatch } from '../control/index.mjs';
-import { rotateControlPageToken, serveControlPage, stopControlPage } from '../control/control-page.mjs';
+import { ensureControlPage, rotateControlPageToken, serveControlPage, stopControlPage } from '../control/control-page.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.BUILD_LOOP_APPROVAL_STORE = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'control-page-store-')));
@@ -207,4 +207,96 @@ test('rotate invalidates the old links and sessions, and stop ends the process',
   assert.equal(alive(pid), false);
   assert.equal((await readJson(path.join(root, '.loop', 'scheduler', 'control-page.json'))).pid, null);
   await assert.rejects(send(`${url}/`, { cookie: fresh }));
+});
+
+// ---- Self-healing: autostart, stale records, /healthz, the log -------------------
+
+const runtimeFile = (root) => path.join(root, '.loop', 'scheduler', 'control-page.json');
+const logLines = async (root) => (await fs.readFile(path.join(root, '.loop', 'scheduler', 'control-page.log'), 'utf8').catch(() => ''))
+  .split('\n').filter((line) => line.startsWith('{')).map((line) => JSON.parse(line));
+async function policy(root, record) {
+  await fs.mkdir(path.join(root, '.loop', 'control'), { recursive: true });
+  await fs.writeFile(path.join(root, '.loop', 'control', 'policy.json'), JSON.stringify({ schema_version: 1, ...record }));
+}
+
+test('a tick starts the control page when the policy sets confirmation_page, and logs it', async (t) => {
+  const root = await project(t);
+  await policy(root, { confirmation_page: { listen: '127.0.0.1' } });
+  await dispatch(root, 'tick', {}, { channel: 'cli-input' });
+  const runtime = await readJson(runtimeFile(root));
+  assert.ok(Number.isInteger(runtime.pid) && alive(runtime.pid), 'the tick brought the page up');
+  assert.equal((await send(`${runtime.origin}/healthz`)).text, 'ok');
+  // A second tick finds it running and leaves it alone.
+  await dispatch(root, 'tick', {}, { channel: 'cli-input' });
+  assert.equal((await readJson(runtimeFile(root))).pid, runtime.pid);
+  const lines = await logLines(root);
+  assert.deepEqual(lines.map((line) => [line.reason, line.action]), [['tick', 'started'], ['tick', 'already-running']]);
+  for (const line of lines) { assert.deepEqual(Object.keys(line).sort(), ['action', 'reason', 'time']); assert.ok(Date.parse(line.time)); }
+  // A state-changing operation checks too, after it succeeded; a read-only one does not.
+  await dispatch(root, 'backlog_add', { id: 'WI-070', title: 'Bounded change', outcome: 'A bounded change lands.' });
+  await dispatch(root, 'check', {}); await dispatch(root, 'status', {});
+  assert.deepEqual((await logLines(root)).map((line) => line.reason), ['tick', 'tick', 'backlog_add']);
+});
+
+test('control_page_autostart:false keeps the page down, and no policy means no autostart', async (t) => {
+  const root = await project(t);
+  await dispatch(root, 'tick', {}, { channel: 'cli-input' });
+  await dispatch(root, 'backlog_add', { id: 'WI-071', title: 'Bounded change', outcome: 'A bounded change lands.' });
+  assert.equal(await fs.stat(runtimeFile(root)).then(() => true, () => false), false, 'no policy: nothing starts');
+  await policy(root, { control_page_autostart: false, confirmation_page: { listen: '127.0.0.1' } });
+  await dispatch(root, 'tick', {}, { channel: 'cli-input' });
+  await dispatch(root, 'hold', { reason: 'Stop for a moment' });
+  assert.equal(await fs.stat(runtimeFile(root)).then(() => true, () => false), false, 'opted out: nothing starts');
+  assert.deepEqual(await logLines(root), []);
+  // Opting in without confirmation_page works too, and a held project still gets its page.
+  await policy(root, { control_page_autostart: true });
+  await dispatch(root, 'tick', {}, { channel: 'cli-input' });
+  assert.ok(alive((await readJson(runtimeFile(root))).pid));
+});
+
+test('a stale runtime file is replaced: a dead pid gets a new process, and serve recovers too', async (t) => {
+  const root = await project(t);
+  await policy(root, { confirmation_page: { listen: '127.0.0.1' } });
+  const first = await ensureControlPage(root, { reason: 'test' });
+  assert.equal(first.ok, true); assert.equal(first.action, 'started');
+  assert.ok(!('link' in first), 'ensureControlPage never hands out a link');
+  process.kill(first.pid, 'SIGKILL');
+  for (let wait = 0; wait < 50 && alive(first.pid); wait++) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal((await readJson(runtimeFile(root))).pid, first.pid, 'the record still names the dead process');
+  await dispatch(root, 'tick', {}, { channel: 'cli-input' });
+  const second = await readJson(runtimeFile(root));
+  assert.notEqual(second.pid, first.pid); assert.ok(alive(second.pid)); assert.equal(second.origin, first.url);
+  // A pid that is alive but is not the page (here: this test process) is not trusted either.
+  await fs.writeFile(runtimeFile(root), JSON.stringify({ ...second, pid: process.pid === second.pid ? 1 : process.ppid }));
+  process.kill(second.pid, 'SIGKILL');
+  for (let wait = 0; wait < 50 && alive(second.pid); wait++) await new Promise((resolve) => setTimeout(resolve, 20));
+  const served = await dispatch(root, 'serve');
+  assert.equal(served.started, true); assert.ok(alive(served.pid)); assert.notEqual(served.pid, second.pid);
+  assert.equal((await readJson(runtimeFile(root))).pid, served.pid);
+  const actions = (await logLines(root)).map((line) => `${line.reason}:${line.action}`);
+  assert.deepEqual(actions, ['test:started', 'tick:started', 'serve:started']);
+});
+
+test('ensureControlPage reports a failure in its result and never throws', async (t) => {
+  const root = await project(t);
+  // The scheduler directory cannot be made: .loop/scheduler is a file.
+  await fs.writeFile(path.join(root, '.loop', 'scheduler'), 'not a directory');
+  const result = await ensureControlPage(root, { reason: 'test' });
+  assert.equal(result.ok, false); assert.equal(result.action, 'failed'); assert.ok(result.error.code);
+});
+
+test('/healthz answers ok without a session, and nothing else does', async (t) => {
+  const root = await project(t);
+  const { url, pid } = await serveControlPage(root);
+  const health = await send(`${url}/healthz`);
+  assert.equal(health.status, 200); assert.equal(health.text, 'ok');
+  assert.equal(health.headers['set-cookie'], undefined);
+  assert.equal((await send(`${url}/healthz?pid=${pid}`)).text, 'ok');
+  assert.notEqual((await send(`${url}/healthz?pid=${pid + 1}`)).text, 'ok', 'another pid is not this page');
+  assert.equal((await send(`${url}/healthz`, { host: `evil.test:${new URL(url).port}` })).status, 403);
+  for (const [route, method] of [['/', 'GET'], ['/healthz/', 'GET'], ['/health', 'GET'], ['/status', 'GET'], ['/decide', 'POST'], ['/action', 'POST'], ['/healthz', 'POST']]) {
+    const answer = await send(`${url}${route}`, { method, ...(method === 'POST' ? { origin: url, body: '' } : {}) });
+    assert.notEqual(answer.text, 'ok', `${method} ${route}`);
+    assert.equal(answer.status, 403, `${method} ${route} needs a session`);
+  }
 });

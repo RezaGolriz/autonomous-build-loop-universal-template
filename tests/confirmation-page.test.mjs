@@ -55,6 +55,10 @@ test('confirmation_page is validated strictly', () => {
   assert.match(valid({ listen: '0.0.0.0', advertise: '192.0.2.10:8765' }), /advertise must be a host name/);
   assert.match(valid({ listen: '0.0.0.0', advertise: '192.0.2.10', scheme: 'https' }), /unknown field\(s\): scheme/);
   assert.match(valid('0.0.0.0'), /must be an object/);
+  // control_page_autostart is a plain boolean or absent.
+  assert.equal(confirmationPolicyProblem({ schema_version: 1, control_page_autostart: false }), null);
+  assert.equal(confirmationPolicyProblem({ schema_version: 1, control_page_autostart: true, confirmation_page: { listen: '127.0.0.1' } }), null);
+  for (const bad of ['true', 1, null, {}]) assert.match(confirmationPolicyProblem({ schema_version: 1, control_page_autostart: bad }), /control_page_autostart must be true or false/);
   // Absent, and for a broken policy, both pages stay on loopback.
   assert.deepEqual(confirmationPageBinding(null), { listen: '127.0.0.1', advertise: '127.0.0.1', port: 0 });
   assert.deepEqual(confirmationPageBinding({ error: { code: 'INVALID_POLICY' }, confirmation_page: { listen: '0.0.0.0', advertise: 'x' } }), { listen: '127.0.0.1', advertise: '127.0.0.1', port: 0 });
@@ -83,7 +87,8 @@ test('a confirmation_page that does not validate is INVALID_POLICY, and check/st
 });
 
 test('the page link names the advertised host, and only that origin may post', async () => {
-  const root = await project({ schema_version: 1, confirmation_page: { listen: '127.0.0.1', advertise: 'phone.test' } });
+  // Autostart off: this is the one-request page, not the long-lived control page.
+  const root = await project({ schema_version: 1, control_page_autostart: false, confirmation_page: { listen: '127.0.0.1', advertise: 'phone.test' } });
   await dispatch(root, 'backlog_add', { id: 'WI-050', title: 'Bounded change', outcome: 'A bounded change lands.' });
   const requested = await dispatch(root, 'authorize', { confirm: 'AUTHORIZE', item_id: 'WI-050', allowed_paths: ['docs/guide.md'] });
   assert.equal(requested.ok, true, JSON.stringify(requested));

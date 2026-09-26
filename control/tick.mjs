@@ -15,6 +15,7 @@ import { check } from './check.mjs';
 import { settleHumanDecisions } from './human-ops.mjs';
 import { handoverNodePending, launchJob } from './jobs.mjs';
 import { assertNotHeld } from './hold.mjs';
+import { autostartControlPage } from './control-page.mjs';
 
 const PHASES = ['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER'];
 const DEFAULT_STALE_SECONDS = 14400;
@@ -303,6 +304,10 @@ async function decide(root, loop, scheduler, maxNodes, channel) {
 
 export async function tick(root, args = {}, channel = 'mcp-user') {
   const { loop, scheduler } = await assertControlPath(root);
+  // First, before the hold and the lock: bring the control page back when the
+  // policy asks for autostart. Cheap when it is running, and it never throws.
+  // This is what brings the page back after a reboot, with no service installed.
+  await autostartControlPage(root, { reason: 'tick' });
   // A held project does not tick. The cadence is the entry point a hold exists
   // for: it is the one thing that would otherwise keep going on its own.
   await assertNotHeld(root, channel, 'tick');
