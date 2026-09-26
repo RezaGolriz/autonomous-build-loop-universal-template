@@ -73,4 +73,31 @@ grep -q 'PROJECT ON HOLD' "$out" || bad 'an unreadable hold record does not show
 rm -f "$d/.loop/control/hold.json"
 ok 'renders the project hold banner, escaped, above everything else'
 
+# Project progress: done items from history, the current item, the queued backlog.
+d=$(fixture); out="$d/.loop/dashboard.html"; "$render" --root "$d"
+grep -q 'Project progress' "$out" || bad 'progress tile missing'
+grep -q '0 of 1 items done</strong> · 1 in progress · 0 queued · 0%' "$out" || bad 'progress counts wrong before history'
+future=$(jq -rn 'now + 3600 | todate')
+for x in 'WI-001 20260901T080000Z 6' 'WI-002 20260903T120000Z 9'; do
+  set -- $x; mkdir -p "$d/.loop/history/$1-$2"
+  jq -n --arg id "$1" --argjson r "$3" '{work_item_id:$id,round:$r,gates:({DEFINE:{status:"PASSED"},DESIGN:{status:"PASSED"},EXECUTE:{status:"PASSED"},REVIEW:{status:"PASSED"},VALIDATE:{status:"PASSED"},HANDOVER:{status:"PASSED"}})}' > "$d/.loop/history/$1-$2/state.json"
+done
+printf '%s\n' '# WI-001: First <b>done</b>' > "$d/.loop/history/WI-001-20260901T080000Z/WI-001.md"
+jq -n '{schema_version:1,items:[{id:"WI-100",title:"ready next"},{id:"WI-101",title:"waiting"}]}' > "$d/.loop/backlog.json"
+jq -n --arg f "$future" '{schema_version:1,item_id:"WI-100",state:"READY",scope:{allowed_paths:["src/"]},budget:{max_rounds:8,max_wall_seconds:600},expires_at:$f,stop_on_first_failure:true,authorized_by:"interactive-tty",authorized_at:"2026-01-01T00:00:00Z"}' > "$d/.loop/work-items/WI-100.authorization.json"
+"$render" --root "$d"
+grep -q '2 of 5 items done</strong> · 1 in progress · 2 queued · 40%' "$out" || bad 'progress counts wrong'
+grep -q 'class="fill" style="width:40%"' "$out" || bad 'progress bar width wrong'
+grep -q '<details><summary>Items</summary><table>.*</table></details></section>' "$out" || bad 'progress item list is not folded'
+grep -q 'First &lt;b&gt;done&lt;/b&gt;' "$out" || bad 'done title missing or not escaped'
+if grep -q '<b>done</b>' "$out"; then bad 'raw done title present'; fi
+grep -q 'accepted 2026-09-01 · 6 round(s)' "$out" || bad 'accepted date or rounds missing'
+[ "$(grep -o 'class="dot ' "$out" | wc -l | tr -d ' ')" -eq 6 ] || bad 'expected six gate dots'
+tile=$(grep -o '<section class="card progress">.*</section>' "$out" | head -1)
+pos(){ printf %s "$tile" | awk -v n="<td>$1</td>" '{print index($0,n)}'; }
+last=0; for id in WI-001 WI-002 TEST-1 WI-100 WI-101; do p=$(pos "$id"); [ "$p" -gt "$last" ] || bad "progress order wrong at $id"; last=$p; done
+printf %s "$tile" | grep -q 'badge READY">READY' || bad 'queued READY badge missing'
+printf %s "$tile" | grep -q 'badge PAUSED">NONE' || bad 'queued item without authorization not shown'
+ok 'renders the project progress tile with counts, order and escaping'
+
 echo "1..$n"

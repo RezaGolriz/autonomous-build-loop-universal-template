@@ -11,6 +11,7 @@ import {
 } from './common.mjs';
 import { activateProject, bundleRoot, distributionHashes, runBounded, verifyPlanForApproval } from './setup.mjs';
 import { authorizationExpired, backlogSummary, inboxCount, readAuthorization } from './backlog.mjs';
+import { progressSummaryFor } from './progress.mjs';
 import { assertNotHeld, holdSummary } from './hold.mjs';
 import { writeNextSteps } from './notes.mjs';
 import { MODEL_KEYS, MODEL_NAME_PATTERN } from './schemas.mjs';
@@ -585,6 +586,7 @@ export async function status(root, args = {}) {
   const policy = await confirmationPolicy(root).catch((error) => ({ human_confirmation: 'tty-only', source: 'invalid-policy', error: { code: 'INVALID_POLICY', message: error.message } }));
   return {
     ok: true, initialized: Boolean(state), state, job, open_blockers: blockers, activation, authorization, backlog, inbox,
+    progress: await progressSummaryFor(root).catch(() => null),
     ...await (async () => { const execution = await currentExecution(root).catch(() => null); const independence = await reviewIndependence(root, state?.work_item_id, execution).catch(() => ({ review_isolated: null, review_warning: null })); return { host: execution?.host ?? null, execution, review_isolated: independence.review_isolated, ...(independence.review_warning ? { review_warning: independence.review_warning } : {}) }; })(),
     hold: await holdSummary(root).catch(() => null),
     policy: { mode: policy.human_confirmation, source: policy.source, error: policy.error ?? null, ...(policy.confirmation_page ? { confirmation_page: policy.confirmation_page } : {}) },

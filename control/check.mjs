@@ -7,6 +7,7 @@ import path from 'node:path';
 import { assertControlPath, confirmationPolicy, exists, readJson } from './common.mjs';
 import { backlogSummary, inboxCount, readAuthorization } from './backlog.mjs';
 import { holdSummary } from './hold.mjs';
+import { progressSummaryFor } from './progress.mjs';
 import { currentExecution, reviewIndependence } from './chat.mjs';
 
 async function reviewVerdict(loop, state) {
@@ -75,6 +76,7 @@ export async function check(root) {
     open_blockers: await openBlockers(loop),
     backlog: { ready: backlog.ready, paused: backlog.paused },
     inbox: await inboxCount(loop),
+    progress: await progressSummaryFor(root).catch(() => null),
     hold,
     authorization: state ? await readAuthorization(loop, state.work_item_id).catch(() => null) : null,
     human_confirmation: policy.human_confirmation,

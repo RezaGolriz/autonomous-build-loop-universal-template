@@ -46,7 +46,7 @@ log_field(){ printf %s "$1" | tr ' ' '\n' | sed -n "s/^$2=//p" | head -1; }
 {
 cat <<'HTML'
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Run dashboard</title><style>
-body{margin:0;background:#f7f8fa;color:#17202a;font:15px system-ui,-apple-system,sans-serif}main{max-width:1050px;margin:auto;padding:20px}h1{margin:.2em 0}.card{background:white;border:1px solid #d8dee6;border-radius:10px;padding:16px;margin:14px 0;overflow:auto}.meta,.phases{display:flex;flex-wrap:wrap;gap:8px}.badge,.pill{padding:4px 9px;border-radius:999px;background:#e5e7eb}.RUNNING{background:#dbeafe;color:#1d4ed8}.WAITING_FOR_HUMAN{background:#fef3c7;color:#92400e}.BLOCKED,.FAILED{background:#fee2e2;color:#b91c1c}.COMPLETED,.PASSED{background:#dcfce7;color:#166534}.PAUSED,.CANCELLED,.PENDING{background:#e5e7eb;color:#4b5563}.NOT_APPLICABLE{background:repeating-linear-gradient(135deg,#eee,#eee 5px,#ddd 5px,#ddd 10px);color:#555}.current{outline:2px solid #111;outline-offset:2px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #ddd;padding:7px;vertical-align:top}pre{white-space:pre-wrap;word-break:break-word}.open{color:#b91c1c}.resolved{color:#667085}ul{padding-left:22px}.READY{background:#dcfce7;color:#166534}.EXPIRED,.flag{background:#fef3c7;color:#92400e}.flag{padding:4px 9px;border-radius:999px;border:1px solid #d9a441}summary{cursor:pointer}.note{color:#667085}.card.hold{background:#fff1f2;border-color:#b91c1c;color:#7f1d1d}.card.hold h2{color:#b91c1c;margin-top:0}</style></head><body><main>
+body{margin:0;background:#f7f8fa;color:#17202a;font:15px system-ui,-apple-system,sans-serif}main{max-width:1050px;margin:auto;padding:20px}h1{margin:.2em 0}.card{background:white;border:1px solid #d8dee6;border-radius:10px;padding:16px;margin:14px 0;overflow:auto}.meta,.phases{display:flex;flex-wrap:wrap;gap:8px}.badge,.pill{padding:4px 9px;border-radius:999px;background:#e5e7eb}.RUNNING{background:#dbeafe;color:#1d4ed8}.WAITING_FOR_HUMAN{background:#fef3c7;color:#92400e}.BLOCKED,.FAILED{background:#fee2e2;color:#b91c1c}.COMPLETED,.PASSED{background:#dcfce7;color:#166534}.PAUSED,.CANCELLED,.PENDING{background:#e5e7eb;color:#4b5563}.NOT_APPLICABLE{background:repeating-linear-gradient(135deg,#eee,#eee 5px,#ddd 5px,#ddd 10px);color:#555}.current{outline:2px solid #111;outline-offset:2px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #ddd;padding:7px;vertical-align:top}pre{white-space:pre-wrap;word-break:break-word}.open{color:#b91c1c}.resolved{color:#667085}ul{padding-left:22px}.READY{background:#dcfce7;color:#166534}.EXPIRED,.flag{background:#fef3c7;color:#92400e}.flag{padding:4px 9px;border-radius:999px;border:1px solid #d9a441}summary{cursor:pointer}.note{color:#667085}.card.hold{background:#fff1f2;border-color:#b91c1c;color:#7f1d1d}.card.hold h2{color:#b91c1c;margin-top:0}.bar{height:14px;border-radius:999px;background:#e5e7eb;overflow:hidden;margin:4px 0 10px}.bar .fill{height:100%;background:#16a34a}.progress tr.done td{color:#166534}.progress tr.now td{background:#eaf2fc;font-weight:600}.progress tr.queued td{color:#6b7280}.dots{display:inline-flex;gap:4px;margin-left:8px;vertical-align:middle}.dot{width:10px;height:10px;border-radius:50%;background:#cbd5e1;display:inline-block}.dot.passed{background:#16a34a}.dot.failed,.dot.blocked{background:#dc2626}</style></head><body><main>
 HTML
 # A project-wide hold. While .loop/control/hold.json exists nothing automated
 # runs in this project, whatever the run status says, so it is the first thing
@@ -63,6 +63,81 @@ fi
 printf '<h1>Work item %s</h1><div class="card meta">' "$(val '.work_item_id')"
 printf '<span class="badge %s">%s</span>' "$(printf %s "$status" | esc)" "$(printf %s "$status" | esc)"
 printf '<span>Phase: %s</span><span>Round: %s/%s</span><span>Gate failures: %s/%s</span><span>Updated: %s</span><span>Generated: %s UTC</span></div>\n' "$(val '.phase')" "$(val '.round')" "$(val '.max_rounds')" "$(val '.gate_failures_here')" "$(val '.max_gate_failures')" "$(val '.updated_at')" "$(printf %s "$generated" | esc)"
+# Project progress: done items from .loop/history/<item>-<timestamp>/, the
+# current item from state.json, the queued backlog. Mirrors
+# control/progress.mjs. Missing or broken inputs are left out, never guessed;
+# symlinked inputs are ignored. Pure CSS, no script.
+prog_obj(){ if [ -f "$1" ] && [ ! -L "$1" ]; then jq -cs 'if length==1 and (.[0]|type)=="object" then .[0] else {} end' "$1" 2>/dev/null || printf '{}'; else printf '{}'; fi; }
+prog_title(){ # <work item file> <id> -> title or empty
+  [ -f "$1" ] && [ ! -L "$1" ] || return 0
+  t=$(grep -m1 '^#[[:space:]]' "$1" 2>/dev/null | sed -e 's/^#[[:space:]]*//' -e 's/[[:space:]]*$//' || true)
+  case "$t" in "$2:"*) t=${t#"$2:"}; t=$(printf %s "$t" | sed 's/^[[:space:]]*//');; esac
+  [ -n "$t" ] || t=$(grep -m1 '^Title:' "$1" 2>/dev/null | sed -e 's/^Title:[[:space:]]*//' -e 's/[[:space:]]*$//' || true)
+  printf %s "$t" | cut -c1-200
+}
+prog_auth(){ # <file> <id> -> READY | PAUSED | INVALID | NONE
+  if [ -L "$1" ]; then printf INVALID; return; fi
+  if [ ! -e "$1" ]; then printf NONE; return; fi
+  jq -r --arg id "$2" 'if type=="object" and .schema_version==1 and .item_id==$id and (.state=="READY" or .state=="PAUSED") then
+      (if .state=="READY" and (.expires_at|type)=="string" and (try ((.expires_at|fromdateiso8601) > now) catch false) then "READY" else "PAUSED" end)
+    else "INVALID" end' "$1" 2>/dev/null || printf INVALID
+}
+idre='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+: > "$tmp/done.jsonl"
+if [ -d "$loop/history" ] && [ ! -L "$loop/history" ]; then
+  for h in "$loop"/history/*; do
+    [ -d "$h" ] && [ ! -L "$h" ] || continue
+    hname=$(basename "$h")
+    hstamp=$(printf %s "$hname" | sed -n 's/^[A-Za-z0-9][A-Za-z0-9._-]*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p')
+    [ -n "$hstamp" ] || continue
+    hid=${hname%-"$hstamp"}; hst=$(prog_obj "$h/state.json"); hacc=$(prog_obj "$h/acceptance.json")
+    sid=$(printf %s "$hst" | jq -r '.work_item_id // "" | tostring' 2>/dev/null || true)
+    if [[ "$sid" =~ $idre ]]; then hid=$sid; fi
+    jq -cn --arg id "$hid" --arg stamp "$hstamp" --arg name "$hname" --arg title "$(prog_title "$h/$hid.md" "$hid")" --argjson s "$hst" --argjson a "$hacc" '{
+      id:$id, stamp:$stamp, name:$name, title:(if $title=="" then null else $title end),
+      accepted_at:(if ($a.accepted_at|type)=="string" then $a.accepted_at else ($stamp|"\(.[0:4])-\(.[4:6])-\(.[6:8])T\(.[9:11]):\(.[11:13]):\(.[13:15])Z") end),
+      rounds:(if ($s.round|type)=="number" and $s.round==($s.round|floor) then $s.round else null end),
+      gates:(if $s=={} then null else ([ "DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER" ]|map({key:., value:($s.gates[.].status? // "PENDING" | if type=="string" then . else "PENDING" end)})|from_entries) end)}' >> "$tmp/done.jsonl" 2>/dev/null || true
+  done
+fi
+cur_title=""; if [[ "$wid" =~ $idre ]]; then cur_title=$(prog_title "$loop/work-items/$wid.md" "$wid"); fi
+: > "$tmp/queued.jsonl"
+if [ -f "$loop/backlog.json" ] && [ ! -L "$loop/backlog.json" ]; then
+  jq -r '(.items // []) | .[0:1000][] | [((.id // "")|tostring), (if (.title|type)=="string" then .title else "" end)] | @tsv' "$loop/backlog.json" 2>/dev/null > "$tmp/progress-backlog.tsv" || : > "$tmp/progress-backlog.tsv"
+  while IFS="$(printf '\t')" read -r qid qtitle; do
+    [[ "$qid" =~ $idre ]] || continue
+    jq -cn --arg id "$qid" --arg title "$qtitle" --arg auth "$(prog_auth "$loop/work-items/$qid.authorization.json" "$qid")" '{id:$id, title:(if $title=="" then null else $title end), authorization:$auth}' >> "$tmp/queued.jsonl"
+  done < "$tmp/progress-backlog.tsv"
+fi
+pinbox=0
+if [ -d "$loop/inbox" ] && [ ! -L "$loop/inbox" ]; then
+  if [ -f "$loop/inbox/index.json" ] && [ ! -L "$loop/inbox/index.json" ] && jq -e '(.items|type)=="array"' "$loop/inbox/index.json" >/dev/null 2>&1; then pinbox=$(jq '.items|length' "$loop/inbox/index.json")
+  else pinbox=$(find "$loop/inbox" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' '); fi
+fi
+jq -n --slurpfile done "$tmp/done.jsonl" --slurpfile queued "$tmp/queued.jsonl" --argjson s "$(prog_obj "$state")" --arg ctitle "$cur_title" --arg idre "$idre" --argjson inbox "$pinbox" '
+  ($done|sort_by(.stamp, .name)|.[-1000:]|map(del(.stamp, .name))) as $d
+  | ($d|map(.id)) as $ids
+  | (if ($s.work_item_id|type)=="string" and ($s.work_item_id|test($idre)) and (($s.run_status=="COMPLETED" and ($ids|index($s.work_item_id)) != null)|not) then
+      {id:$s.work_item_id, title:(if $ctitle=="" then null else $ctitle end), phase:(if ($s.phase|type)=="string" then $s.phase else null end),
+       round:(if ($s.round|type)=="number" then $s.round else null end), max_rounds:(if ($s.max_rounds|type)=="number" then $s.max_rounds else null end),
+       run_status:(if ($s.run_status|type)=="string" then $s.run_status else null end),
+       gates:([ "DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER" ]|map({key:., value:($s.gates[.].status? // "PENDING" | if type=="string" then . else "PENDING" end)})|from_entries)}
+    else null end) as $c
+  | ($queued|map(select(.id != ($c.id // "")))) as $q
+  | {done:($d|length), in_progress:(if $c then 1 else 0 end), queued:($q|length)} as $t
+  | ($t + {total:($t.done+$t.in_progress+$t.queued)}) as $t
+  | {schema_version:1, totals:$t, percent:(if $t.total>0 then ($t.done*100/$t.total + 0.5|floor) else 0 end), done:$d, current:$c, queued:$q, inbox:$inbox}' > "$tmp/progress.json" 2>/dev/null || printf 'null\n' > "$tmp/progress.json"
+jq -r '
+  def na: if . == null then "not available" else tostring end | @html;
+  def dots($g): "<span class=\"dots\">" + ([ "DEFINE","DESIGN","EXECUTE","REVIEW","VALIDATE","HANDOVER" ]|map(. as $p | ($g[$p] // "PENDING") as $st | "<span class=\"dot " + (if ($st|test("^(PASSED|FAILED|BLOCKED)$")) then ($st|ascii_downcase) else "pending" end) + "\" title=\"" + ($p|@html) + " · " + ($st|@html) + "\"></span>")|join("")) + "</span>";
+  if . == null then "<section class=\"card progress\"><h2>Project progress</h2><p>not available</p></section>" else
+  . as $p
+  | ([ ($p.done[] | "<tr class=\"done\"><td>\(.id|na)</td><td>\(.title|na)</td><td><span class=\"badge PASSED\">DONE</span></td><td>accepted \(.accepted_at|if type=="string" then .[0:10] else null end|na) · \(if .rounds==null then "rounds not available" else "\(.rounds|na) round(s)" end)</td></tr>"),
+       ($p.current // empty | "<tr class=\"now\"><td>\(.id|na)</td><td>\(.title|na)</td><td><span class=\"badge RUNNING\">IN PROGRESS</span></td><td>\(.phase|na) · round \(.round|na) \(dots(.gates))</td></tr>"),
+       ($p.queued[] | "<tr class=\"queued\"><td>\(.id|na)</td><td>\(.title|na)</td><td><span class=\"badge \(if .authorization=="READY" then "READY" else "PAUSED" end)\">\(.authorization|na)</span></td><td>queued</td></tr>") ] | join("")) as $rows
+  | "<section class=\"card progress\"><h2>Project progress</h2><div class=\"bar\"><div class=\"fill\" style=\"width:\($p.percent)%\"></div></div><p><strong>\($p.totals.done) of \($p.totals.total) items done</strong> · \($p.totals.in_progress) in progress · \($p.totals.queued) queued · \($p.percent)%" + (if $p.inbox > 0 then " · \($p.inbox) proposal(s) in the inbox" else "" end) + "</p>"
+    + (if $rows == "" then "<p>not available</p>" else "<details><summary>Items</summary><table><thead><tr><th>ID</th><th>Title</th><th>State</th><th>Detail</th></tr></thead><tbody>" + $rows + "</tbody></table></details>" end) + "</section>" end' "$tmp/progress.json" 2>/dev/null || printf '<section class="card progress"><h2>Project progress</h2><p>not available</p></section>'
+printf '\n'
 # How the run executes: the bound copy of the current job, else the machine
 # configuration. Chat-hosted execution is named, and so is a review that is not
 # independently isolated.

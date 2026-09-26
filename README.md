@@ -293,6 +293,7 @@ Read the page from top to bottom:
 
 | Page area | What it tells you | What you do next |
 |---|---|---|
+| **Project progress** | The whole project at a glance: a bar and "3 of 6 items done · 1 in progress · 2 queued"; the item list is folded under **Items** | Nothing; it shows where the project stands, not what to do |
 | **Status** | One literal state: `NOT CONFIGURED`, `SETUP CANDIDATE`, `PAUSED`, `RUNNING`, `BLOCKED`, `WAITING_FOR_HUMAN`, `COMPLETED`, or `CANCELLED` | Follow the displayed next action |
 | **Decisions** | A decision that waits for you (accept, authorize, promote, release), frozen exactly as it was asked for; or buttons to prepare one, and **Hold** to stop everything | Read it, type its word and press the button. Hold needs no word |
 | **Workflow** | Which of DEFINE, DESIGN, EXECUTE, REVIEW, VALIDATE, and HANDOVER is current and which gates have evidence. Gate states include `PASSED`, `FAILED`, and `PENDING`. **Round** counts workflow transitions and rework against a separate safety cap | A failed gate normally means rework; a pending gate has not been completed yet |

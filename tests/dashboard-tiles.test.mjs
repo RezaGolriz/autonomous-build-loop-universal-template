@@ -167,3 +167,35 @@ test('a project-wide hold is shown as a banner, and an unreadable one still is',
   assert.match(broken, /PROJECT ON HOLD/);
   assert.match(broken, /cannot be read/);
 });
+
+test('the project progress tile shows done, current and queued items in order', async (t) => {
+  const root = await fixture(t);
+  // Before any history: one item in progress, nothing done.
+  const early = await renderDashboard(root, NONCE);
+  assert.match(early, /Project progress/);
+  assert.match(early, /0 of 1 items done<\/strong> · 1 in progress · 0 queued · 0%/);
+  const gates = Object.fromEntries(['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER'].map((phase) => [phase, { status: 'PASSED' }]));
+  await write(root, '.loop/history/WI-001-20260901T080000Z/state.json', JSON.stringify({ work_item_id: 'WI-001', round: 6, gates }));
+  await write(root, '.loop/history/WI-001-20260901T080000Z/WI-001.md', '# WI-001: First <b>done</b>\n');
+  await write(root, '.loop/history/WI-002-20260903T120000Z/state.json', JSON.stringify({ work_item_id: 'WI-002', round: 9, gates }));
+  await write(root, '.loop/backlog.json', JSON.stringify({ schema_version: 1, items: [
+    { id: 'WI-100', title: 'ready next', added_at: '2026-01-01T00:00:00Z', work_kind: 'feature' },
+    { id: 'WI-101', title: 'waiting', added_at: '2026-01-01T00:00:00Z', work_kind: 'docs' },
+  ] }));
+  await write(root, '.loop/work-items/WI-100.authorization.json', authorization({ item_id: 'WI-100' }));
+  const html = await renderDashboard(root, NONCE);
+  assert.match(html, /2 of 5 items done<\/strong> · 1 in progress · 2 queued · 40%/);
+  assert.match(html, /class="fill" style="width:40%"/);
+  // The item list is folded; the bar and the one line are what shows by default.
+  assert.match(html, /<section class="card progress">.*?<details><summary>Items<\/summary><table>.*?<\/table><\/details><\/section>/);
+  assert.match(html, /First &lt;b&gt;done&lt;\/b&gt;/);
+  assert.ok(!html.includes('<b>done</b>'));
+  assert.match(html, /accepted 2026-09-01 · 6 round\(s\)/);
+  assert.match(html, /tr class="now"><td>TEST-1<\/td>.*EXECUTE · round 1/);
+  assert.equal((html.match(/class="dot /g) || []).length, 6);
+  const order = ['WI-001', 'WI-002', 'TEST-1', 'WI-100', 'WI-101'].map((id) => html.indexOf(`<td>${id}</td>`));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.ok(order[0] > 0);
+  // The tile sits above the status card.
+  assert.ok(html.indexOf('Project progress') < html.indexOf('>Status<'));
+});

@@ -141,6 +141,7 @@ The page is built only from files in the project's `.loop/` folder:
 
 | Section on the page | Source file |
 |---|---|
+| Project progress | every `.loop/history/<item>-<timestamp>/` folder (done), `.loop/state.json` (in progress), `.loop/backlog.json` with each item's authorization file (queued) |
 | Header, phase strip, gates | `.loop/state.json` |
 | Legal next steps | `.loop/workflow.json` (the fixed workflow) |
 | Blockers | `.loop/blockers.md` |
@@ -159,6 +160,16 @@ Nothing is computed from the agent's output or from Git. If a file is
 missing, the section says "not available" instead of guessing.
 
 ## Reading the page, top to bottom
+
+**Project progress.** At the top, under the header (and under the hold banner
+and the Decisions panel when those are shown), a green bar shows how much of the
+whole project is done, with one line such as "3 of 6 items done · 1 in progress
+· 2 queued". Done means a person accepted it. Open **Items** to see every item in
+order: done ones with the day they were accepted and their rounds, the current
+one with its phase, round and gate dots, and the queued ones with READY, PAUSED,
+INVALID or NONE. `check` and `status` return the same numbers as `progress`.
+Both dashboards show this tile; a missing or broken file is left out, never
+guessed.
 
 **Project hold banner.** If `.loop/control/hold.json` exists, a red banner sits
 above everything else and says PROJECT ON HOLD, with the recorded reason, when

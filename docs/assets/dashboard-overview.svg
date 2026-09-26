@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1384" viewBox="0 0 1440 1384" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1466" viewBox="0 0 1440 1466" role="img" aria-labelledby="title desc">
   <title id="title">Annotated Build Loop control page</title>
-  <desc id="desc">A representative Build Loop control page with numbered annotations for status, the Decisions panel where a person types the word, workflow gates, loop selection, current job and how it executes, the authorization of the current item, the backlog, the scout inbox, the last tick and the next-steps memory, blockers, evidence, and the work item.</desc>
+  <desc id="desc">A representative Build Loop control page with numbered annotations for the project progress bar, status, the Decisions panel where a person types the word, workflow gates, loop selection, current job and how it executes, the authorization of the current item, the backlog, the scout inbox, the last tick and the next-steps memory, blockers, evidence, and the work item.</desc>
   <defs>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
       <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#21364d" flood-opacity="0.13"/>
@@ -24,14 +24,22 @@
     </style>
   </defs>
 
-  <rect width="1440" height="1384" fill="#eef2f6"/>
-  <rect x="190" y="30" width="1060" height="1324" rx="18" fill="#eef2f6" filter="url(#shadow)"/>
+  <rect width="1440" height="1466" fill="#eef2f6"/>
+  <rect x="190" y="30" width="1060" height="1406" rx="18" fill="#eef2f6" filter="url(#shadow)"/>
 
   <g class="ui">
     <text x="225" y="66" class="muted small" letter-spacing="1.3">UNIVERSAL BUILD LOOP · CONTROL PAGE</text>
     <text x="225" y="103" font-size="30" font-weight="720">example-api</text>
     <text x="225" y="127" class="muted small">/projects/example-api</text>
     <text x="225" y="151" class="small">Stable link · Updated now · <tspan fill="#205994" text-decoration="underline">Refresh status</tspan></text>
+
+    <rect class="card" x="215" y="172" width="1010" height="64" rx="14"/>
+    <text x="245" y="200" class="label">Project progress</text>
+    <text x="245" y="224" class="small"><tspan class="ok">3 of 6 items done</tspan> · 1 in progress · 2 queued</text>
+    <rect x="600" y="192" width="595" height="14" rx="7" fill="#e5e7eb"/>
+    <rect x="600" y="192" width="298" height="14" rx="7" fill="#16a34a"/>
+    <text x="600" y="226" class="tiny muted">50% · now: WI-001 · VALIDATE · round 6</text>
+    <g transform="translate(0,82)">
 
     <rect class="card" x="215" y="172" width="1010" height="120" rx="14"/>
     <text x="245" y="205" class="label">Status</text>
@@ -115,20 +123,24 @@
     <rect class="card" x="215" y="1258" width="1010" height="82" rx="14"/>
     <text x="245" y="1294" font-size="19" font-weight="700">› Work item</text>
     <text x="245" y="1320" class="small muted">Expand to read scope, acceptance criteria, slices, and handover notes.</text>
+    </g>
   </g>
 
   <g class="ui">
-    <rect class="call" x="20" y="190" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="214" r="15"/><text class="numtext" x="45" y="214">1</text><text x="68" y="219" class="label">Status</text><text x="35" y="248" class="small">Start here.</text><path class="arrow" d="M170 231 L225 231"/>
-    <rect class="call" x="20" y="337" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="361" r="15"/><text class="numtext" x="45" y="361">2</text><text x="68" y="366" class="label">Decisions</text><text x="35" y="395" class="small">Type the word.</text><path class="arrow" d="M170 378 L225 378"/>
-    <rect class="call" x="20" y="484" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="508" r="15"/><text class="numtext" x="45" y="508">3</text><text x="68" y="513" class="label">Gates</text><text x="35" y="542" class="small">Find the phase.</text><path class="arrow" d="M170 525 L225 525"/>
-    <rect class="call" x="20" y="654" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="678" r="15"/><text class="numtext" x="45" y="678">4</text><text x="68" y="683" class="label">Next loop</text><text x="35" y="712" class="small">Copy to chat.</text><path class="arrow" d="M170 695 L225 695"/>
-    <rect class="call" x="1270" y="649" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="673" r="15"/><text class="numtext" x="1295" y="673">5</text><text x="1318" y="678" class="label">Job</text><text x="1285" y="707" class="small">Progress record.</text><path class="arrow" d="M1270 690 L1220 690"/>
-    <rect class="call" x="20" y="846" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="870" r="15"/><text class="numtext" x="45" y="870">6</text><text x="68" y="875" class="label">Authorized</text><text x="35" y="904" class="small">Scope and budget.</text><path class="arrow" d="M170 887 L225 887"/>
-    <rect class="call" x="1270" y="846" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="870" r="15"/><text class="numtext" x="1295" y="870">7</text><text x="1318" y="875" class="label">Backlog</text><text x="1285" y="904" class="small">The queue behind.</text><path class="arrow" d="M1270 887 L1220 887"/>
-    <rect class="call" x="20" y="1005" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1029" r="15"/><text class="numtext" x="45" y="1029">8</text><text x="68" y="1034" class="label">Inbox</text><text x="35" y="1063" class="small">Scout proposals.</text><path class="arrow" d="M170 1046 L225 1046"/>
-    <rect class="call" x="1270" y="1005" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1029" r="15"/><text class="numtext" x="1295" y="1029">9</text><text x="1318" y="1034" class="label">Tick</text><text x="1285" y="1063" class="small">What a timer did.</text><path class="arrow" d="M1270 1046 L1220 1046"/>
-    <rect class="call" x="20" y="1144" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1168" r="15"/><text class="numtext" x="45" y="1168">10</text><text x="68" y="1173" class="label">Blocker</text><text x="35" y="1202" class="small">Answer in chat.</text><path class="arrow" d="M170 1185 L225 1185"/>
-    <rect class="call" x="1270" y="1144" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1168" r="15"/><text class="numtext" x="1295" y="1168">11</text><text x="1322" y="1173" class="label">Evidence</text><text x="1285" y="1202" class="small">Checks, results.</text><path class="arrow" d="M1270 1185 L1220 1185"/>
-    <rect class="call" x="1270" y="1267" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1291" r="15"/><text class="numtext" x="1295" y="1291">12</text><text x="1322" y="1296" class="label">Scope</text><text x="1285" y="1325" class="small">The work item.</text><path class="arrow" d="M1270 1308 L1220 1308"/>
+    <g transform="translate(0,82)">
+    <rect class="call" x="20" y="190" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="214" r="15"/><text class="numtext" x="45" y="214">2</text><text x="68" y="219" class="label">Status</text><text x="35" y="248" class="small">Start here.</text><path class="arrow" d="M170 231 L225 231"/>
+    <rect class="call" x="20" y="337" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="361" r="15"/><text class="numtext" x="45" y="361">3</text><text x="68" y="366" class="label">Decisions</text><text x="35" y="395" class="small">Type the word.</text><path class="arrow" d="M170 378 L225 378"/>
+    <rect class="call" x="20" y="484" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="508" r="15"/><text class="numtext" x="45" y="508">4</text><text x="68" y="513" class="label">Gates</text><text x="35" y="542" class="small">Find the phase.</text><path class="arrow" d="M170 525 L225 525"/>
+    <rect class="call" x="20" y="654" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="678" r="15"/><text class="numtext" x="45" y="678">5</text><text x="68" y="683" class="label">Next loop</text><text x="35" y="712" class="small">Copy to chat.</text><path class="arrow" d="M170 695 L225 695"/>
+    <rect class="call" x="1270" y="649" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="673" r="15"/><text class="numtext" x="1295" y="673">6</text><text x="1318" y="678" class="label">Job</text><text x="1285" y="707" class="small">Progress record.</text><path class="arrow" d="M1270 690 L1220 690"/>
+    <rect class="call" x="20" y="846" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="870" r="15"/><text class="numtext" x="45" y="870">7</text><text x="68" y="875" class="label">Authorized</text><text x="35" y="904" class="small">Scope and budget.</text><path class="arrow" d="M170 887 L225 887"/>
+    <rect class="call" x="1270" y="846" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="870" r="15"/><text class="numtext" x="1295" y="870">8</text><text x="1318" y="875" class="label">Backlog</text><text x="1285" y="904" class="small">The queue behind.</text><path class="arrow" d="M1270 887 L1220 887"/>
+    <rect class="call" x="20" y="1005" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1029" r="15"/><text class="numtext" x="45" y="1029">9</text><text x="68" y="1034" class="label">Inbox</text><text x="35" y="1063" class="small">Scout proposals.</text><path class="arrow" d="M170 1046 L225 1046"/>
+    <rect class="call" x="1270" y="1005" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1029" r="15"/><text class="numtext" x="1295" y="1029">10</text><text x="1318" y="1034" class="label">Tick</text><text x="1285" y="1063" class="small">What a timer did.</text><path class="arrow" d="M1270 1046 L1220 1046"/>
+    <rect class="call" x="20" y="1144" width="150" height="82" rx="10"/><circle class="num" cx="45" cy="1168" r="15"/><text class="numtext" x="45" y="1168">11</text><text x="68" y="1173" class="label">Blocker</text><text x="35" y="1202" class="small">Answer in chat.</text><path class="arrow" d="M170 1185 L225 1185"/>
+    <rect class="call" x="1270" y="1144" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1168" r="15"/><text class="numtext" x="1295" y="1168">12</text><text x="1322" y="1173" class="label">Evidence</text><text x="1285" y="1202" class="small">Checks, results.</text><path class="arrow" d="M1270 1185 L1220 1185"/>
+    <rect class="call" x="1270" y="1267" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="1291" r="15"/><text class="numtext" x="1295" y="1291">13</text><text x="1322" y="1296" class="label">Scope</text><text x="1285" y="1325" class="small">The work item.</text><path class="arrow" d="M1270 1308 L1220 1308"/>
+    </g>
+    <rect class="call" x="1270" y="163" width="150" height="82" rx="10"/><circle class="num" cx="1295" cy="187" r="15"/><text class="numtext" x="1295" y="187">1</text><text x="1318" y="192" class="label">Progress</text><text x="1285" y="221" class="small">Whole project.</text><path class="arrow" d="M1270 204 L1220 204"/>
   </g>
 </svg>
