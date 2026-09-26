@@ -8,6 +8,8 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 brief="$tmp/brief.json"; cat > "$brief"
 phase=$(jq -r '.phase' "$brief"); work=$(jq -r '.work_item_id' "$brief")
 root=${LOOP_ROOT:-$PWD}; wi="$root/.loop/work-items/$work.md"
+# Every phase's brief is also kept per phase, so tests can read any node's task.
+[ -z "${MOCK_DUMP:-}" ] || cp "$brief" "$MOCK_DUMP.$phase"
 
 action=""
 if [ -n "${MOCK_SCRIPT:-}" ] && [ -f "${MOCK_SCRIPT:-}" ]; then
@@ -67,6 +69,12 @@ case "$phase" in
     add_under '## Out of scope' '- Nothing else';;
   DESIGN)
     add_under '## Design' '- Single function in src/greet.py'
+    if [ "$action" = prose-table ]; then
+      # A slice table whose path columns hold prose, as a real builder once wrote it.
+      sed 's/^| Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |$/| Slice | Content | Verifier IDs | Proof |/' "$wi" > "$wi.mock" && mv "$wi.mock" "$wi"
+      add_under '## Execution slices' '| 1 | Build the greeting function and its tests | test | tests pass |'
+      done_json; exit 0
+    fi
     add_under '## Execution slices' '| 1 | src/** | requirements/** | test | tests pass |'
     add_under '## Execution slices' '| 2 | `tests/**` | `src/**`, requirements/** | test | tests pass |';;
   HANDOVER)

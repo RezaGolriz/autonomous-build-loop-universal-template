@@ -152,6 +152,28 @@ was updated has no `paused_epoch` yet, so its waiting time up to that moment
 still counts; cancel it and start it again under the same id if its budget ran
 out.
 
+## EXECUTE fails with "gate failed (artifact): path check failed: ..."
+
+The engine checks every path a slice changed against the slice's allowed and
+frozen paths, the adapter's protected paths and the declared artifacts. Since
+version 0.6.0 the blocker and the evidence name each failing path and the rule
+it broke (outside the slice's allowed paths, frozen, protected, unsafe, or a
+missing declared artifact). Earlier versions failed these checks silently.
+
+The slice's allowed paths come from column 2 of its row in the execution
+slice table, and its frozen paths from column 3. The DESIGN gate therefore
+requires the layout `| Slice | Allowed paths | Frozen paths | Verifier IDs |
+Proof |` with path patterns only in columns 2 and 3; a table with prose in
+those columns fails DESIGN with a message that names the expected layout.
+
+## A stale document sent the whole item back to DEFINE
+
+REVIEW findings route by defect class: requirement goes back to DEFINE, design
+to DESIGN, artifact to EXECUTE. Since version 0.6.0 the reviewer is told to
+classify stale or incomplete documentation of the change (decision records,
+work item sections) as artifact, so such a finding returns to EXECUTE instead
+of restarting the item.
+
 ## Every start fails with DISTRIBUTION_CHANGED after a package update
 
 The activation record binds the build-loop package files it was approved with.

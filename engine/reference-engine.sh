@@ -254,15 +254,30 @@ while IFS= read -r id; do
 done < <(jq -r '.verifier_ids[]' "$node")
 
 artifact_present(){ pat=$1; safe_path "$pat" && no_symlink_prefix "$pat" || return 1; hit=$(cd "$root"&&find . -path "./$pat" -type f ! -type l -print -quit); [ -n "$hit" ]; }
-while IFS= read -r pat; do artifact_present "$pat"||failed=1; done < <(jq -r '.output_artifacts[]' "$node"; jq -r '.artifacts[].paths[]' "$adapter")
+# Every reason a path check fails is recorded, so a failed gate names the
+# path and the rule instead of failing silently.
+reasons=()
+while IFS= read -r pat; do artifact_present "$pat"||{ failed=1; reasons+=("declared artifact missing: $pat"); }; done < <(jq -r '.output_artifacts[]' "$node"; jq -r '.artifacts[].paths[]' "$adapter")
 
 snapshot "$work/after"
 protected_snapshot "$work/protected-after"
 loop_changed_paths "$baseline" "$work/after" > "$work/changed"
 loop_changed_paths "$work/protected-pre" "$work/protected-after" >> "$work/changed"
 match(){ q=$1 sel=$2 file=$3; while IFS= read -r pat; do [[ "$q" == $pat ]]&&return 0; done < <(jq -r "$sel[]" "$file"); return 1; }
-while IFS= read -r p; do [ -n "$p" ]||continue; protected=0; match "$p" .protected_paths "$adapter"&&protected=1; case "$p" in .loop/*|core/*|spec/*|hosts/*|engine/*) protected=1;; esac; parent=$(dirname "$root/$p"); if [ -L "$root/$p" ]||! physical_under_root "$parent" >/dev/null||! no_symlink_prefix "$p"; then failed=1; elif [ "$protected" -eq 1 ]||match "$p" .frozen_paths "$node"||! match "$p" .allowed_paths "$node"; then failed=1; fi; done < "$work/changed"
-[ "$failed" -eq 0 ] || for record in "$work"/$rid-*.json; do tmp="$record.tmp"; jq '.result="FAILED"' "$record" > "$tmp" && mv "$tmp" "$record"; done
+while IFS= read -r p; do [ -n "$p" ]||continue; protected=0; match "$p" .protected_paths "$adapter"&&protected=1; case "$p" in .loop/*|core/*|spec/*|hosts/*|engine/*) protected=1;; esac
+  # A deleted file may have taken its directory with it: check the nearest
+  # directory that still exists.
+  parent=$(dirname "$root/$p"); while [ ! -e "$parent" ] && [ "$parent" != "$root" ] && [ "$parent" != / ]; do parent=$(dirname "$parent"); done
+  if [ -L "$root/$p" ]||! physical_under_root "$parent" >/dev/null||! no_symlink_prefix "$p"; then failed=1; reasons+=("unsafe path (symlink or outside the project): $p")
+  elif [ "$protected" -eq 1 ]; then failed=1; reasons+=("protected path changed: $p")
+  elif match "$p" .frozen_paths "$node"; then failed=1; reasons+=("frozen path changed: $p")
+  elif ! match "$p" .allowed_paths "$node"; then failed=1; reasons+=("path outside the slice's allowed paths $(jq -c .allowed_paths "$node"): $p"); fi
+done < "$work/changed"
+if [ "$failed" -eq 1 ]; then
+  observation=''
+  [ "${#reasons[@]}" -eq 0 ] || observation="path check failed: $(printf '%s\n' "${reasons[@]}" | head -5 | paste -sd ';' - | sed 's/;/; /g')"
+  for record in "$work"/$rid-*.json; do tmp="$record.tmp"; jq --arg obs "$observation" '.result="FAILED"|if $obs=="" then . else .details.observation=$obs end' "$record" > "$tmp" && mv "$tmp" "$record"; done
+fi
 
 mkdir -p "$evidence_dir/$rid/logs"; cp "$work"/*.json "$evidence_dir/$rid/"; cp "$work"/*.stdout "$work"/*.stderr "$evidence_dir/$rid/logs/" 2>/dev/null||:; cp "$ids" "$evidence_dir/$rid/evidence-ids.txt"
 jq -n --arg id "$rid" --arg a "$(jq -r .adapter_id "$adapter")" --arg asha "$adapter_sha" --arg nsha "$node_sha" --arg w "$(jq -r .work_item_id "$node")" --arg gate "$(jq -r .gate_id "$node")" --arg rev "$rev" --arg p "$phase" --arg s "$([ "$failed" -eq 0 ]&&echo PASSED||echo FAILED)" --argjson e "$(jq -Rsc 'split("\n")|map(select(length>0))' "$ids")" '{schema_version:1,run_id:$id,work_item_id:$w,gate_id:$gate,revision:$rev,adapter_id:$a,adapter_sha256:$asha,node_sha256:$nsha,phase:$p,status:$s,evidence_ids:$e}' > "$evidence_dir/$rid/run-summary.json"

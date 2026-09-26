@@ -381,6 +381,31 @@ EOF
 
 # Every path the slice table declares has to be covered by the authorization.
 # A slice that reaches outside it fails the DESIGN gate instead of being run.
+# The engine reads column 2 of each slice row as its allowed paths and column 3
+# as its frozen paths, so the table must use exactly that layout. Prints the
+# first problem found, or nothing.
+slice_table_problem(){
+  local header n i p
+  header=$(awk '/^## / { insec = ($0 ~ /^## Execution slices/); next } insec && /^[ \t]*\|/ { n=split($0, f, "|"); v=f[2]; gsub(/^[ \t]+|[ \t]+$/, "", v); if (v=="Slice") { a=f[3]; b=f[4]; gsub(/^[ \t]+|[ \t]+$/, "", a); gsub(/^[ \t]+|[ \t]+$/, "", b); print a "|" b; exit } }' "$wi")
+  [ -n "$header" ] || { echo 'execution slices need a table with the header | Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |'; return; }
+  [ "$header" = 'Allowed paths|Frozen paths' ] || { echo "execution slice table columns 2 and 3 must be 'Allowed paths' and 'Frozen paths', found '${header%%|*}' and '${header#*|}'"; return; }
+  n=$(slice_count); [ "$n" -gt 0 ] || { echo 'the execution slice table has no slice rows'; return; }
+  i=1
+  while [ "$i" -le "$n" ]; do
+    [ "$(paths_json "$(slice_col "$i" 2 || true)")" != '[]' ] || { echo "execution slice $i has no allowed paths"; return; }
+    while IFS= read -r p; do
+      p=$(printf '%s' "$p" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+      [ -n "$p" ] || continue
+      [ "$p" = none ] && continue
+      printf '%s' "$p" | grep -Eq '^[A-Za-z0-9._*/{}!?+@-]+(\[[^]]*\])?[A-Za-z0-9._*/{}!?+@-]*$' || { echo "execution slice $i has a path entry that is not a path pattern: $p"; return; }
+    done <<EOF
+$(slice_col "$i" 2 || true)
+$(slice_col "$i" 3 || true)
+EOF
+    i=$((i+1))
+  done
+}
+
 slice_paths_outside_scope(){ # scope-text
   local patterns=$1 n i p outside=""
   n=$(slice_count)
@@ -461,9 +486,9 @@ print_status(){
 
 phase_task(){ case "$1" in
   DEFINE) echo 'Write testable acceptance criteria and explicit exclusions into the work item.';;
-  DESIGN) echo 'Write the design and the independently provable execution slices into the work item.';;
+  DESIGN) echo 'Write the design and the independently provable execution slices into the work item. The execution slices section must hold exactly this table layout, one row per slice: | Slice | Allowed paths | Frozen paths | Verifier IDs | Proof |. Allowed paths and Frozen paths contain only comma-separated path patterns in backticks (write none when nothing is frozen); put any description of the slice into the Proof column or the Design section, never into the path columns. The engine enforces each slice'"'"'s allowed paths from column 2.';;
   EXECUTE) echo 'Produce the declared artifact for the current slice inside the allowed paths only.';;
-  REVIEW) echo 'Review the exact durable change and the referenced evidence, then return a verdict.';;
+  REVIEW) echo 'Review the exact durable change and the referenced evidence, then return a verdict. Classify each finding by what has to change: artifact when the implementation, its tests or its documentation (decision records, work item sections, comments) are wrong, stale or incomplete; design when the planned slices or architecture are wrong; requirement only when the acceptance criteria or scope themselves are wrong or missing.';;
   VALIDATE) echo 'Confirm acceptance and regression behaviour by reading the work item, the change and its tests: name the test or check that covers each acceptance criterion. Do not run commands and do not block for lack of a shell: after this node the engine itself runs the configured verification commands and records their evidence. This node is READ-ONLY: change no file at all (not even the work item); the engine rejects any change in this phase.';;
   HANDOVER) echo 'Record revision, evidence, limitations and the next human decision in the work item.';;
 esac; }
@@ -1011,7 +1036,12 @@ else
           [ "$vrc" -eq 0 ] || passed=0
           ev_ids=$(jq -r '.evidence_ids[]' "$summary")
           for id in $ev_ids; do cp "$evidence_dir/$run_id/$id.json" "$evidence_dir/$id.json"; done
-          [ "$passed" -eq 1 ] || defect=artifact
+          if [ "$passed" -ne 1 ]; then
+            defect=artifact
+            # Carry the verifier's reason (for example the path that broke the
+            # slice scope) into the blocker, so a failed gate is never silent.
+            obs=$(for id in $ev_ids; do jq -r 'select(.result=="FAILED")|.details.observation // empty' "$evidence_dir/$id.json"; done | grep '^path check failed' | head -1 || true)
+          fi
         fi
         enforce_authorized_change_scope "$(authorized_scope)";;
       *)
@@ -1021,6 +1051,10 @@ else
         case "$phase" in
           DEFINE) has_section '## Acceptance criteria' && has_section '## Out of scope' || { result=FAILED; obs="DEFINE requires non-empty acceptance criteria and out-of-scope sections."; };;
           DESIGN) has_section '## Design' && has_section '## Execution slices' || { result=FAILED; obs="DESIGN requires non-empty design and execution slices sections."; }
+            if [ "$result" = PASSED ]; then
+              table_problem=$(slice_table_problem)
+              [ -z "$table_problem" ] || { result=FAILED; obs="$table_problem"; }
+            fi
             # The authorization is the outer boundary. A slice may narrow it; it
             # may never reach outside what the person actually authorized.
             if [ "$result" = PASSED ]; then

@@ -97,6 +97,24 @@ set +e; MOCK_SCRIPT=$s "$orch" loop --root "$d" --host mock --provider "$mock" -
 [ "$rc" -ne 0 ] || bad 'frozen path run returned zero'
 [ "$(st "$d" .run_status)" = BLOCKED ] || bad "frozen path status $(st "$d" .run_status)"
 ok 'a frozen path change fails the EXECUTE gate and blocks'
+grep -q 'gate failed (artifact): path check failed: .*requirements/frozen.md' "$d/.loop/blockers.md" || bad 'the blocker does not name the path that failed the check'
+jq -e -s 'map(select(.phase=="EXECUTE" and .result=="FAILED" and ((.details.observation // "")|test("path check failed: .*requirements/frozen.md"))))|length>=1' \
+  "$d"/.loop/evidence/*.json >/dev/null || bad 'no EXECUTE evidence records why the path check failed'
+ok 'a failed path check names the path and the rule in the blocker and the evidence'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+s=$(script "$d" '{"DESIGN":"prose-table"}')
+set +e; MOCK_SCRIPT=$s "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 3 >/dev/null; rc=$?; set -e
+[ "$rc" -ne 0 ] || bad 'a prose slice table did not stop the loop'
+[ "$(st "$d" .phase)" = DESIGN ] || bad "prose slice table phase $(st "$d" .phase)"
+grep -q "columns 2 and 3 must be 'Allowed paths' and 'Frozen paths'" "$d/.loop/blockers.md" || bad 'no blocker explains the slice table layout'
+ok 'a slice table without path columns fails the DESIGN gate with the expected layout'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
+design_dump="$(mktemp -d "${TMPDIR:-/tmp}/loop-design-dump.XXXXXX")/brief.json"; s=$(script "$d" '{"DESIGN":"block"}')
+set +e; MOCK_SCRIPT=$s MOCK_DUMP="$design_dump" "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 2 >/dev/null; set -e
+jq -e '.task|test("\\| Slice \\| Allowed paths \\| Frozen paths \\| Verifier IDs \\| Proof \\|")' "$design_dump.DESIGN" >/dev/null || bad 'the DESIGN brief does not state the slice table layout'
+ok 'the DESIGN brief states the exact slice table layout'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null; mkdir -p "$d/.loop/engine.lock"
 fails 'run refuses while the engine lock is held' "$orch" run --root "$d" --host mock --provider "$mock"
