@@ -275,7 +275,17 @@ while IFS= read -r p; do [ -n "$p" ]||continue; protected=0; match "$p" .protect
 done < "$work/changed"
 if [ "$failed" -eq 1 ]; then
   observation=''
-  [ "${#reasons[@]}" -eq 0 ] || observation="path check failed: $(printf '%s\n' "${reasons[@]}" | head -5 | paste -sd ';' - | sed 's/;/; /g')"
+  if [ "${#reasons[@]}" -gt 0 ]; then
+    # Slice the array in plain bash instead of piping through `head`: with more
+    # than 5 reasons, `head -5` closes the pipe early and `printf` on the other
+    # end dies of SIGPIPE, which `pipefail` turns into a nonzero pipeline exit
+    # and aborts the whole script under `set -e` -- silently dropping every
+    # reason before the caller ever sees them.
+    shown=("${reasons[@]:0:5}"); more=$((${#reasons[@]}-${#shown[@]}))
+    joined=$(IFS='; '; echo "${shown[*]}")
+    [ "$more" -gt 0 ] && joined="$joined; and $more more"
+    observation="path check failed: $joined"
+  fi
   for record in "$work"/$rid-*.json; do tmp="$record.tmp"; jq --arg obs "$observation" '.result="FAILED"|if $obs=="" then . else .details.observation=$obs end' "$record" > "$tmp" && mv "$tmp" "$record"; done
 fi
 

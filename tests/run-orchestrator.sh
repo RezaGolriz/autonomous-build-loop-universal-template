@@ -116,6 +116,21 @@ jq -e -s 'map(select(.phase=="EXECUTE" and .result=="FAILED" and ((.details.obse
 ok 'a failed path check names the path and the rule in the blocker and the evidence'
 
 d=$(fixture); "$orch" start --root "$d" >/dev/null
+s=$(script "$d" '{"EXECUTE":"many-out-of-scope"}')
+set +e; MOCK_SCRIPT=$s "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 3 >/dev/null; rc=$?; set -e
+[ "$rc" -ne 0 ] || bad 'many-out-of-scope run returned zero'
+[ "$(st "$d" .run_status)" = BLOCKED ] || bad "many-out-of-scope status $(st "$d" .run_status)"
+ok 'seven out-of-scope paths still fail the EXECUTE gate and block'
+# Regression: with more than 5 reasons, `head -5` used to close the pipe early
+# and the resulting SIGPIPE from `printf`, combined with `pipefail`, aborted
+# reference-engine.sh under `set -e` before it could record any reason at all.
+grep -q 'gate failed (artifact): path check failed: .*scratch/file1.txt' "$d/.loop/blockers.md" || bad 'the blocker lost the path-check reasons with more than 5 violations'
+grep -q 'and 2 more' "$d/.loop/blockers.md" || bad 'the blocker does not say how many further reasons were omitted'
+jq -e -s 'map(select(.phase=="EXECUTE" and .result=="FAILED" and ((.details.observation // "")|test("path check failed: .*scratch/file1.txt.*and 2 more"))))|length>=1' \
+  "$d"/.loop/evidence/*.json >/dev/null || bad 'EXECUTE evidence lost the path-check reasons with more than 5 violations'
+ok 'more than 5 path-check reasons still reach the blocker and the evidence intact'
+
+d=$(fixture); "$orch" start --root "$d" >/dev/null
 s=$(script "$d" '{"DESIGN":"prose-table"}')
 set +e; MOCK_SCRIPT=$s "$orch" loop --root "$d" --host mock --provider "$mock" --max-nodes 3 >/dev/null; rc=$?; set -e
 [ "$rc" -ne 0 ] || bad 'a prose slice table did not stop the loop'

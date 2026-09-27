@@ -87,7 +87,11 @@ case "$phase" in
       *) printf '# implemented by mock provider\ndef greeting(name: str) -> str:\n    return f"Hello, {name}!"\n' > "$root/src/greet.py";;
     esac
     if [ "$action" = add-file ]; then printf 'VALUE = 1\n' > "$root/src/extra_module.py"; fi
-    if [ "$action" = touch-frozen ]; then mkdir -p "$root/requirements"; printf 'frozen\n' > "$root/requirements/frozen.md"; fi;;
+    if [ "$action" = touch-frozen ]; then mkdir -p "$root/requirements"; printf 'frozen\n' > "$root/requirements/frozen.md"; fi
+    if [ "$action" = many-out-of-scope ]; then
+      mkdir -p "$root/scratch"
+      for i in 1 2 3 4 5 6 7; do printf 'x\n' > "$root/scratch/file$i.txt"; done
+    fi;;
   VALIDATE) : ;;
 esac
 done_json
