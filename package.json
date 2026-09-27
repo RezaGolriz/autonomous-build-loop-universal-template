@@ -1,6 +1,6 @@
 {
   "name": "universal-build-loop",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "An evidence-backed development loop with shared shell and conversational controls.",
   "type": "module",
   "engines": { "node": ">=22" },

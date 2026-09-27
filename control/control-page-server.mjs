@@ -113,7 +113,9 @@ function openSession(tokenSha) {
 
 function baseHeaders(res, scriptNonce = null) {
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  // same-origin, not no-referrer: with no-referrer browsers post the decision
+  // forms with "Origin: null", and the Origin check below refuses every decision.
+  res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Content-Security-Policy', `default-src 'none'; style-src 'unsafe-inline'; ${scriptNonce ? `script-src 'nonce-${scriptNonce}'; ` : ''}base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
@@ -290,6 +292,17 @@ async function act(form, session, res) {
     : { ok: Boolean(result?.ok), text: result?.ok ? `${action} done.` : `${action} was not prepared.` });
 }
 
+// A decision form must come from this page. Browsers send its Origin; some
+// send "null" or nothing (privacy settings, older referrer policies), and then
+// Sec-Fetch-Site says whether the request came from this same origin. The
+// form token (csrf) is checked in every case as well.
+function sameOrigin(req, host) {
+  const origin = String(req.headers.origin || '').toLowerCase();
+  if (origin === `http://${host}`) return true;
+  if (origin && origin !== 'null') return false;
+  return String(req.headers['sec-fetch-site'] || '').toLowerCase() === 'same-origin';
+}
+
 // ---- The server -------------------------------------------------------------
 
 const server = http.createServer(async (req, res) => {
@@ -326,7 +339,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) { plain(res, 403, 'Open the control page through a fresh link: build-loop serve (or loop_serve in a chat) prints a single-use one.'); return; }
     if (req.method === 'GET' && url.pathname === '/') { await renderPage(res, session); return; }
     if (req.method === 'POST' && (url.pathname === '/decide' || url.pathname === '/action')) {
-      if (String(req.headers.origin || '').toLowerCase() !== `http://${host}`) { plain(res, 403, 'Invalid Origin.'); return; }
+      if (!sameOrigin(req, host)) { plain(res, 403, 'Invalid Origin.'); return; }
       const form = await readBody(req);
       if (!same(form.get('csrf') || '', session.csrf)) { plain(res, 403, 'Invalid form token. Reload the page and try again.'); return; }
       const minuteAgo = Date.now() - 60_000;

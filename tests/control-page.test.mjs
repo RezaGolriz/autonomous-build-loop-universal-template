@@ -27,14 +27,14 @@ async function project(t) {
   return root;
 }
 
-function send(url, { method = 'GET', cookie, origin, body, host } = {}) {
+function send(url, { method = 'GET', cookie, origin, body, host, fetchSite } = {}) {
   const target = new URL(url);
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: '127.0.0.1', port: target.port, path: `${target.pathname}${target.search}`, method,
       headers: {
         host: host ?? target.host,
-        ...(cookie ? { cookie } : {}), ...(origin ? { origin } : {}),
+        ...(cookie ? { cookie } : {}), ...(origin ? { origin } : {}), ...(fetchSite ? { 'sec-fetch-site': fetchSite } : {}),
         ...(body !== undefined ? { 'content-type': 'application/x-www-form-urlencoded', 'content-length': Buffer.byteLength(body) } : {}),
       },
     }, (res) => { let text = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { text += chunk; }); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text })); });
@@ -100,6 +100,7 @@ test('the token opens a session; without one, or with a bad one, the page answer
   assert.match(page.text, /Decisions/); assert.match(page.text, /Control page/);
   assert.match(page.headers['content-security-policy'], /frame-ancestors 'none'/);
   assert.match(page.headers['content-security-policy'], /script-src 'nonce-/);
+  assert.equal(page.headers['referrer-policy'], 'same-origin', 'no-referrer would make browsers send Origin: null on the decision forms');
   assert.ok(!page.text.includes(new URL(link).searchParams.get('b')), 'the page never shows the token');
 });
 
@@ -122,11 +123,15 @@ test('a pending authorize request is confirmed on the page and completes through
 
   assert.equal((await send(`${url}/decide`, { method: 'POST', cookie, origin: url, body: form(fields) })).status, 403, 'CSRF missing');
   assert.equal((await send(`${url}/decide`, { method: 'POST', cookie, origin: 'http://evil.test', body: form({ ...fields, csrf }) })).status, 403, 'wrong Origin');
+  assert.equal((await send(`${url}/decide`, { method: 'POST', cookie, origin: 'null', body: form({ ...fields, csrf }) })).status, 403, 'Origin null without Sec-Fetch-Site');
+  assert.equal((await send(`${url}/decide`, { method: 'POST', cookie, origin: 'null', fetchSite: 'cross-site', body: form({ ...fields, csrf }) })).status, 403, 'Origin null from another site');
+  assert.equal((await send(`${url}/decide`, { method: 'POST', cookie, fetchSite: 'same-site', body: form({ ...fields, csrf }) })).status, 403, 'no Origin, same-site only');
   assert.equal((await send(`${url}/decide`, { method: 'POST', cookie, body: form({ ...fields, csrf }) })).status, 403, 'no Origin');
   assert.equal((await send(`${url}/decide`, { method: 'POST', origin: url, body: form({ ...fields, csrf }) })).status, 403, 'no session');
   assert.equal(await fs.stat(sidecar).then(() => true, () => false), false);
 
-  const done = await send(`${url}/decide`, { method: 'POST', cookie, origin: url, body: form({ ...fields, csrf }) });
+  // A browser that sends Origin: null for its own form is accepted through Sec-Fetch-Site.
+  const done = await send(`${url}/decide`, { method: 'POST', cookie, origin: 'null', fetchSite: 'same-origin', body: form({ ...fields, csrf }) });
   assert.equal(done.status, 303, done.text);
   const record = await readJson(sidecar);
   assert.equal(record.state, 'READY'); assert.equal(record.authorized_by, 'local-http-user');

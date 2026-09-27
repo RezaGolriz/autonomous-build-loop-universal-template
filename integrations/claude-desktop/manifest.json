@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "universal-build-loop",
   "display_name": "Build Loop",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Set up and control an evidence-backed local development loop from a conversation.",
   "long_description": "Runs local project checks and separately installed AI worker CLIs. Requires Bash, jq, Git, and Perl. Project selection fixes the control root; it is not an operating-system sandbox. Approved commands run with your account privileges and workers may send project data to their model provider.",
   "author": { "name": "Build Loop contributors" },

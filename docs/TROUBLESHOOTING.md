@@ -192,6 +192,18 @@ EXECUTE and REVIEW moves HEAD, and REVIEW then stops with "stale transition
 evidence". Commit human-side changes only between work items; to recover,
 cancel, hand over the cancellation and create the item again under its id.
 
+## The control page answers "Invalid Origin." to every decision
+
+Versions up to 0.6.1 sent `Referrer-Policy: no-referrer` on the control page.
+Browsers then post the decision forms with `Origin: null`, and the page's
+Origin check refuses every decision. Since version 0.6.2 the page sends
+`same-origin`, and a form posted with `Origin: null` or without an Origin is
+accepted when the browser marks it `Sec-Fetch-Site: same-origin` (the form
+token is still required). Restart the control page after the update
+(`build-loop serve --root <project> --stop`, then `build-loop serve --root
+<project>`); until then, confirm at an interactive terminal with
+`build-loop <operation> --root <project> --input <file>`.
+
 ## Every start fails with DISTRIBUTION_CHANGED after a package update
 
 The activation record binds the build-loop package files it was approved with.
