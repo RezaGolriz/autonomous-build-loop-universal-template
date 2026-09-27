@@ -30,6 +30,10 @@ add_under(){ # heading content
 
 if [ "$phase" = SCOUT ]; then
   [ -z "${MOCK_DUMP:-}" ] || cp "$brief" "$MOCK_DUMP"
+  # For timeout tests: sleeps long enough that only a timeout shorter than the
+  # sleep itself can distinguish "the configured timeout reached this process"
+  # from "it did not and the built-in 900s let this finish normally".
+  [ "$action" = sleep ] && sleep 3
   if [ "$action" = block ]; then
     printf '{"schema_version":1,"status":"BLOCKED","proposals":[],"notes":"mock scout blocked"}\n'
     exit 0

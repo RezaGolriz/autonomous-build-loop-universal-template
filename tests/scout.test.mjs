@@ -241,3 +241,25 @@ test('a configured provider path is ignored: the scout runs the bundled wrapper 
   const log = JSON.parse((await fs.readFile(path.join(root, '.loop', 'scheduler', 'scout.log'), 'utf8')).trim());
   assert.equal(log.provider_source, 'bundled-wrapper');
 });
+
+test('a signed SCOUT timeout reaches the scout provider and wins over the signed default', async () => {
+  const root = await project({ allowNames: ['PATH', 'MOCK_SCRIPT'] });
+  // The bundled mock provider sleeps 3s for SCOUT when told to; only a timeout
+  // shorter than that can prove the signed value actually reached the run
+  // instead of the built-in 900s letting it finish normally.
+  const scriptFile = path.join(root, 'mock-scout.json');
+  await fs.writeFile(scriptFile, JSON.stringify({ SCOUT: 'sleep' }));
+  const config = { schema_version: 1, host: 'mock', provider_path: path.join(repo, 'hosts', 'mock', 'provider.sh'), cli_path: null, review_host: 'mock', review_provider_path: path.join(repo, 'hosts', 'mock', 'provider.sh'), review_cli_path: null, auth_check: null, review_auth_check: null, timeouts: { default: 5, SCOUT: 1 }, updated_at: '2026-01-01T00:00:00Z' };
+  config.host_signature = await signHostConfiguration(root, config);
+  await fs.writeFile(path.join(root, '.loop', 'host.local.json'), JSON.stringify(config));
+  const previousScript = process.env.MOCK_SCRIPT; process.env.MOCK_SCRIPT = scriptFile;
+  try {
+    const started = Date.now();
+    const result = await dispatch(root, 'scout', {});
+    const elapsed = Date.now() - started;
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.error.code, 'SCOUT_PROVIDER_FAILED', JSON.stringify(result));
+    assert.equal(result.error.details.timed_out, true, JSON.stringify(result));
+    assert.ok(elapsed < 2500, `expected the SCOUT-specific 1s timeout to win over the 5s default and the 900s built-in (took ${elapsed}ms)`);
+  } finally { if (previousScript === undefined) delete process.env.MOCK_SCRIPT; else process.env.MOCK_SCRIPT = previousScript; }
+});

@@ -180,19 +180,32 @@ async function bundledProviderPath(id) {
   return file;
 }
 
+// A signed timeouts.SCOUT (or timeouts.default) is just a bounded number, not
+// an executable path, so reading it out of the already-verified config carries
+// none of the risk that running a configured or generated provider path would.
+// Anything malformed -- a hand-edited file that still happens to verify, or an
+// older signed config from before this field existed -- falls back to the
+// built-in default rather than being trusted blindly.
+function scoutTimeoutSeconds(timeouts) {
+  const value = timeouts && typeof timeouts === 'object' && !Array.isArray(timeouts) ? (timeouts.SCOUT ?? timeouts.default) : undefined;
+  return Number.isInteger(value) && value >= 1 && value <= 86400 ? value : SCOUT_TIMEOUT_SECONDS;
+}
+
 async function resolveProvider(root, loop, args) {
   if (args.provider !== undefined) {
     const id = providerName(args.provider, 'provider');
-    return { provider: id, provider_path: await bundledProviderPath(id), source: 'argument' };
+    return { provider: id, provider_path: await bundledProviderPath(id), source: 'argument', timeout_seconds: SCOUT_TIMEOUT_SECONDS };
   }
   const configFile = path.join(loop, 'host.local.json');
   if (!await exists(configFile)) throw new ControlError('MISSING_INPUT', 'no provider is configured for this project; pass provider', { missing_inputs: ['provider'] });
   const config = await readJson(configFile, 'host.local.json');
   await verifyHostConfiguration(root, config);
   if (typeof config.host !== 'string' || !PROVIDERS.includes(config.host)) throw new ControlError('MISSING_INPUT', 'the configured host is not a scout provider; pass provider', { missing_inputs: ['provider'] });
-  // Only the name is taken from the signed configuration. Its provider_path is
-  // deliberately ignored: a scout runs the bundled read-only wrapper or nothing.
-  return { provider: config.host, provider_path: await bundledProviderPath(config.host), source: 'bundled-wrapper' };
+  // Only the name, and now a signed timeout, are taken from the signed
+  // configuration. provider_path is deliberately still ignored: a scout runs
+  // the bundled read-only wrapper or nothing, never a configured or generated
+  // executable path.
+  return { provider: config.host, provider_path: await bundledProviderPath(config.host), source: 'bundled-wrapper', timeout_seconds: scoutTimeoutSeconds(config.timeouts) };
 }
 
 async function environmentNames(loop) {
@@ -214,7 +227,7 @@ export async function scout(root, args = {}, channel = 'mcp-user') {
   await assertNotHeld(root, channel, 'scout');
   const running = await activeJob(root);
   if (running) throw new ControlError('JOB_ACTIVE', `job ${running.job_id} is active; a scout waits until the run is finished`, { job_id: running.job_id });
-  const { provider, provider_path: providerPath, source } = await resolveProvider(root, loop, args);
+  const { provider, provider_path: providerPath, source, timeout_seconds: scoutTimeout } = await resolveProvider(root, loop, args);
   const profile = await projectProfile(loop, args);
   const workKind = validateKind(args.work_kind);
   const checks = profileChecks(profile);
@@ -242,7 +255,7 @@ export async function scout(root, args = {}, channel = 'mcp-user') {
     outcome = await runBounded(
       ['bash', '-c', 'exec "$1" < "$2"', 'scout', providerPath, briefFile],
       temp,
-      SCOUT_TIMEOUT_SECONDS,
+      scoutTimeout,
       await environmentNames(loop),
       isolatedRoot,
       { LOOP_PHASE: 'SCOUT', LOOP_ROOT: temp },
