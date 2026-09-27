@@ -79,6 +79,30 @@ test('configure resolves bundled CLIs and doctor checks builder and reviewer aut
   } finally { process.env.PATH = previousPath; }
 });
 
+test('configure accepts a per-phase provider timeout, signs it, and bakes it into the generated wrapper', async () => {
+  const root = await temporary(); const bin = path.join(root, 'bin'); await fs.mkdir(bin); const codex = path.join(bin, 'codex');
+  await fs.writeFile(codex, '#!/bin/sh\nexit 0\n'); await fs.chmod(codex, 0o700);
+  const previousPath = process.env.PATH; process.env.PATH = `${bin}${path.delimiter}${previousPath || ''}`;
+  try {
+    const rejectedShape = await dispatch(root, 'configure', { host: 'codex', timeouts: { EXECUTE: 0 } });
+    assert.equal(rejectedShape.ok, false); assert.equal(rejectedShape.error.code, 'INVALID_INPUT');
+    const rejectedKey = await dispatch(root, 'configure', { host: 'codex', timeouts: { NOT_A_PHASE: 60 } });
+    assert.equal(rejectedKey.ok, false); assert.equal(rejectedKey.error.code, 'UNKNOWN_FIELD');
+    const configured = await dispatch(root, 'configure', { host: 'codex', timeouts: { default: 1800, EXECUTE: 600 } });
+    assert.equal(configured.ok, true); assert.deepEqual(configured.timeouts, { default: 1800, EXECUTE: 600 });
+    const host = JSON.parse(await fs.readFile(path.join(root, '.loop', 'host.local.json'), 'utf8'));
+    assert.deepEqual(host.timeouts, { default: 1800, EXECUTE: 600 });
+    assert.match(host.host_signature, /^[a-f0-9]{64}$/);
+    // The signature covers every unsigned field generically (jsonDigest of the
+    // whole config minus host_signature), so adding `timeouts` needed no change
+    // to the signing or verification logic itself -- only asserted here.
+    assert.equal(await signHostConfiguration(root, host), host.host_signature);
+    const wrapperSource = await fs.readFile(host.provider_path, 'utf8');
+    assert.match(wrapperSource, /export PROVIDER_TIMEOUT='1800'/);
+    assert.match(wrapperSource, /export PROVIDER_TIMEOUT_EXECUTE='600'/);
+  } finally { process.env.PATH = previousPath; }
+});
+
 test('doctor never executes a planted project authentication command', async () => {
   const root = await temporary(); const marker = path.join(root, 'EXECUTED'); const malicious = path.join(root, 'malicious.sh'); await fs.writeFile(malicious, `#!/bin/sh\ntouch '${marker}'\n`); await fs.chmod(malicious, 0o700); await fs.mkdir(path.join(root, '.loop'), { recursive: true });
   await fs.writeFile(path.join(root, '.loop', 'host.local.json'), JSON.stringify({ schema_version: 1, host: 'codex', provider_path: path.join(repo, 'hosts', 'codex', 'provider.sh'), cli_path: malicious, review_host: 'codex', review_provider_path: path.join(repo, 'hosts', 'codex', 'provider.sh'), review_cli_path: malicious, auth_check: { argv: [malicious], timeout_seconds: 5, expected_exit_code: 0 }, review_auth_check: { argv: [malicious], timeout_seconds: 5, expected_exit_code: 0 }, updated_at: new Date().toISOString(), host_signature: '0'.repeat(64) }));

@@ -14,7 +14,7 @@ import { authorizationExpired, backlogSummary, inboxCount, readAuthorization } f
 import { progressSummaryFor } from './progress.mjs';
 import { assertNotHeld, holdSummary } from './hold.mjs';
 import { writeNextSteps } from './notes.mjs';
-import { MODEL_KEYS, MODEL_NAME_PATTERN } from './schemas.mjs';
+import { MODEL_KEYS, MODEL_NAME_PATTERN, PROVIDER_TIMEOUT_KEYS } from './schemas.mjs';
 import { abandonWaitingNode, currentExecution, reviewIndependence } from './chat.mjs';
 
 const orchestrator = path.join(bundleRoot, 'engine', 'orchestrator.sh');
@@ -45,15 +45,19 @@ async function authenticationState(root, host, installed, check, trusted) {
 }
 
 // The orchestrator clears the environment before it runs a provider, so the
-// CLI path and the per-phase models travel in a generated wrapper instead.
-async function wrapProvider(control, role, host, providerPath, cliPath, enabled, models = null) {
-  const bin = enabled && cliPath; const hasModels = models && Object.keys(models).length > 0;
-  if (host === 'mock' || host === 'chat' || (!bin && !hasModels)) return providerPath;
+// CLI path, the per-phase models, and the per-phase timeouts travel in a
+// generated wrapper instead.
+async function wrapProvider(control, role, host, providerPath, cliPath, enabled, models = null, timeouts = null) {
+  const bin = enabled && cliPath; const hasModels = models && Object.keys(models).length > 0; const hasTimeouts = timeouts && Object.keys(timeouts).length > 0;
+  if (host === 'mock' || host === 'chat' || (!bin && !hasModels && !hasTimeouts)) return providerPath;
   const wrapper = path.join(control, 'providers', `${role}-${host}.sh`); const prefix = host === 'claude' ? 'CLAUDE' : 'CODEX';
   const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
   const exports = [];
   if (bin) exports.push(`export ${prefix}_BIN=${shellQuote(cliPath)}`);
   for (const [key, model] of Object.entries(models || {})) exports.push(`export ${prefix}_MODEL${key === 'default' ? '' : `_${key}`}=${shellQuote(model)}`);
+  // PROVIDER_TIMEOUT is host-agnostic (read by engine/provider-runtime.sh, shared
+  // by every host script), so it is never prefixed the way CLAUDE_MODEL/CODEX_MODEL are.
+  for (const [key, seconds] of Object.entries(timeouts || {})) exports.push(`export PROVIDER_TIMEOUT${key === 'default' ? '' : `_${key}`}=${shellQuote(String(seconds))}`);
   await atomicText(wrapper, `#!/bin/sh\n${exports.join('\n')}\nexec ${shellQuote(providerPath)}\n`, 0o700); await fs.chmod(wrapper, 0o700);
   return wrapper;
 }
@@ -70,13 +74,19 @@ export async function configureHost(root, args) {
 }
 
 async function configureHostUnlocked(root, args, loop, control) {
-  exactKeys(args, ['host', 'provider_path', 'cli_path', 'review_host', 'review_provider_path', 'review_cli_path', 'models'], ['host'], 'args');
+  exactKeys(args, ['host', 'provider_path', 'cli_path', 'review_host', 'review_provider_path', 'review_cli_path', 'models', 'timeouts'], ['host'], 'args');
   if (args.models !== undefined) {
     if (!args.models || typeof args.models !== 'object' || Array.isArray(args.models)) throw new ControlError('INVALID_INPUT', 'models must be an object');
     exactKeys(args.models, MODEL_KEYS, [], 'models');
     for (const [key, model] of Object.entries(args.models)) if (typeof model !== 'string' || !new RegExp(MODEL_NAME_PATTERN).test(model)) throw new ControlError('INVALID_INPUT', `models.${key} is not a valid model name`);
   }
   const models = args.models && Object.keys(args.models).length ? args.models : null;
+  if (args.timeouts !== undefined) {
+    if (!args.timeouts || typeof args.timeouts !== 'object' || Array.isArray(args.timeouts)) throw new ControlError('INVALID_INPUT', 'timeouts must be an object');
+    exactKeys(args.timeouts, PROVIDER_TIMEOUT_KEYS, [], 'timeouts');
+    for (const [key, seconds] of Object.entries(args.timeouts)) if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86400) throw new ControlError('INVALID_INPUT', `timeouts.${key} must be a positive integer number of seconds (at most 86400)`);
+  }
+  const timeouts = args.timeouts && Object.keys(args.timeouts).length ? args.timeouts : null;
   if (!['codex', 'claude', 'mock', 'chat'].includes(args.host)) throw new ControlError('INVALID_INPUT', 'host must be codex, claude, mock, or chat');
   if (args.provider_path && !path.isAbsolute(args.provider_path)) throw new ControlError('INVALID_INPUT', 'provider_path must be absolute');
   if (args.cli_path && !path.isAbsolute(args.cli_path)) throw new ControlError('INVALID_INPUT', 'cli_path must be absolute');
@@ -89,14 +99,14 @@ async function configureHostUnlocked(root, args, loop, control) {
   const rawProviderPath = args.provider_path || bundledProviderPath; const rawReviewProviderPath = args.review_provider_path || bundledReviewProviderPath;
   const cliPath = ['mock', 'chat'].includes(args.host) ? null : (args.cli_path || (trustedBundledProvider ? await commandPath(args.host) : null));
   const reviewCliPath = ['mock', 'chat'].includes(reviewHost) ? null : (args.review_cli_path || (trustedBundledReviewProvider ? (reviewHost === args.host && cliPath ? cliPath : await commandPath(reviewHost)) : null));
-  const providerPath = await wrapProvider(control, 'primary', args.host, rawProviderPath, cliPath, Boolean(args.cli_path), models);
-  const reviewProviderPath = await wrapProvider(control, 'review', reviewHost, rawReviewProviderPath, reviewCliPath, Boolean(args.review_cli_path), models);
+  const providerPath = await wrapProvider(control, 'primary', args.host, rawProviderPath, cliPath, Boolean(args.cli_path), models, timeouts);
+  const reviewProviderPath = await wrapProvider(control, 'review', reviewHost, rawReviewProviderPath, reviewCliPath, Boolean(args.review_cli_path), models, timeouts);
   const authCheck = builtInAuthCheck(args.host, cliPath, trustedBundledProvider && !args.cli_path);
   const reviewAuthCheck = builtInAuthCheck(reviewHost, reviewCliPath, trustedBundledReviewProvider && !args.review_cli_path);
-  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, review_host_chosen: Boolean(args.review_host), ...(models ? { models } : {}), updated_at: now() };
+  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, review_host_chosen: Boolean(args.review_host), ...(models ? { models } : {}), ...(timeouts ? { timeouts } : {}), updated_at: now() };
   config.host_signature = await signHostConfiguration(root, config);
   await atomicJson(path.join(loop, 'host.local.json'), config);
-  return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, review_host_chosen: config.review_host_chosen, ...(config.host === 'chat' && !config.review_host_chosen ? { next: 'Choose who reviews before chat_next can start: configure again with review_host chat (this same chat, not independently isolated), claude or codex.' } : {}), ...(config.review_host === 'chat' ? { review_isolated: false, warning: 'Review was not independently isolated (same chat): the REVIEW node is done by the chat that built the change.' } : {}), auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check), models: config.models ?? null };
+  return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, review_host_chosen: config.review_host_chosen, ...(config.host === 'chat' && !config.review_host_chosen ? { next: 'Choose who reviews before chat_next can start: configure again with review_host chat (this same chat, not independently isolated), claude or codex.' } : {}), ...(config.review_host === 'chat' ? { review_isolated: false, warning: 'Review was not independently isolated (same chat): the REVIEW node is done by the chat that built the change.' } : {}), auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check), models: config.models ?? null, timeouts: config.timeouts ?? null };
 }
 
 export async function doctor(root) {

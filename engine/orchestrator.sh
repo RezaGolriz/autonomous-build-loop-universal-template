@@ -601,7 +601,8 @@ call_provider(){ # brief out err
     env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")
   done < <(jq -r '.environment.allow_names[]' "$adapter_file")
   for name in HOME USER LOGNAME SHELL CODEX_HOME CLAUDE_CONFIG_DIR CODEX_BIN CLAUDE_BIN CODEX_MODEL CLAUDE_MODEL PROVIDER_TIMEOUT CHAT_PROVIDER_TIMEOUT_SECONDS \
-    CLAUDE_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT} CODEX_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT}; do
+    CLAUDE_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT} CODEX_MODEL_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT} \
+    PROVIDER_TIMEOUT_{DEFINE,DESIGN,EXECUTE,REVIEW,VALIDATE,HANDOVER,SCOUT}; do
     [ -n "${!name+x}" ] || continue
     jq -e --arg name "$name" 'has($name)' <<<"$env_seen" >/dev/null && continue
     env_args+=("$name=${!name}"); env_seen=$(jq -c --arg name "$name" '.+{($name):true}' <<<"$env_seen")

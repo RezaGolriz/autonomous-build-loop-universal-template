@@ -73,6 +73,34 @@ the default. The same variables also work when set directly for a manual run.
 Keep the independent review on your strongest model: it is the check every
 other phase relies on.
 
+### Provider timeout per phase
+
+The EXECUTE-and-friends provider (the Codex or Claude CLI a node actually
+runs) is killed if it runs longer than `PROVIDER_TIMEOUT` seconds, default
+`900` (15 minutes). `timeouts` overrides that per phase, in the same shape as
+`models`: `default` applies to every phase without its own entry; a phase that
+is not listed and has no default keeps the built-in 900s. Valid keys are the
+same seven phases plus `default`; values are whole seconds, at most `86400`
+(24 hours).
+
+```json
+{
+  "host": "claude",
+  "timeouts": { "default": 900, "EXECUTE": 2700 }
+}
+```
+
+`timeouts` is part of the same signed host configuration as `models` — no
+signature or approval check changes to support it, since the signature already
+covers the whole configuration generically. Because the orchestrator clears
+the environment before it runs a provider, configure writes the chosen values
+into the generated provider wrapper as the plain `PROVIDER_TIMEOUT` for
+`default` and `PROVIDER_TIMEOUT_<PHASE>` for each phase; a phase variable wins
+over the plain one. Both variables also work when set directly in the shell for
+one manual run, and continue to override whatever `configure` wrote — this is
+unrelated to `CHAT_PROVIDER_TIMEOUT_SECONDS`, which bounds a chat-hosted node
+waiting on `chat_submit` instead of a CLI subprocess.
+
 Valid host values are codex, claude, chat, and mock. chat means chat-hosted
 execution: the chat does each node through chat_next and chat_submit, and the
 engine still verifies it. With host chat you must also choose review_host

@@ -148,4 +148,23 @@ sleep 2
 [ ! -e "$linger_marker" ] || bad 'successful provider left a helper process alive'
 ok 'provider returns main status and cleans its lingering process group'
 
+printf '%s\n' '#!/usr/bin/env bash' 'sleep 5' > "$tmp/slow-cmd"; chmod +x "$tmp/slow-cmd"
+start=$(date +%s)
+set +e
+PROVIDER_TIMEOUT=5 PROVIDER_TIMEOUT_EXECUTE=1 LOOP_PHASE=EXECUTE bash -c '. "$1"; provider_run_timed "$2"' _ "$repo/engine/provider-runtime.sh" "$tmp/slow-cmd" >/dev/null 2>&1
+rc=$?
+set -e
+elapsed=$(( $(date +%s) - start ))
+[ "$rc" -eq 124 ] || bad "phase-specific timeout did not fire (exit $rc)"
+[ "$elapsed" -le 3 ] || bad "PROVIDER_TIMEOUT_EXECUTE did not win over the longer plain PROVIDER_TIMEOUT ($elapsed s)"
+ok 'a phase-specific PROVIDER_TIMEOUT_<PHASE> (as configure writes into the provider wrapper) wins over the plain PROVIDER_TIMEOUT'
+
+set +e
+PROVIDER_TIMEOUT_REVIEW=not-a-number LOOP_PHASE=REVIEW bash -c '. "$1"; provider_run_timed "$2"' _ "$repo/engine/provider-runtime.sh" "$tmp/slow-cmd" >/dev/null 2>"$tmp/bad-timeout.err"
+rc=$?
+set -e
+[ "$rc" -eq 64 ] || bad "an invalid phase timeout returned $rc instead of 64"
+grep -q 'PROVIDER_TIMEOUT must be a positive integer' "$tmp/bad-timeout.err" || bad 'an invalid phase timeout did not name PROVIDER_TIMEOUT in its error'
+ok 'an invalid PROVIDER_TIMEOUT_<PHASE> is rejected the same way as an invalid plain PROVIDER_TIMEOUT'
+
 echo "1..$n"

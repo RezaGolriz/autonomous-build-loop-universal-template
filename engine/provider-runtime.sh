@@ -12,7 +12,16 @@ provider_kill_group(){
 }
 
 provider_run_timed(){
-  local timeout=${PROVIDER_TIMEOUT:-900} ticks elapsed rc
+  # A phase-specific timeout (PROVIDER_TIMEOUT_REVIEW, ...) wins over the plain
+  # PROVIDER_TIMEOUT, exactly like a phase-specific model wins over the default
+  # one; LOOP_PHASE is already exported by the orchestrator for every provider
+  # run. Both are configurable per project through the signed host
+  # configuration (`configure`'s `timeouts`), which a generated provider
+  # wrapper turns into these same variables; either may still be overridden by
+  # hand for one manual run.
+  local phase_timeout_var timeout ticks elapsed rc
+  if [ -n "${LOOP_PHASE:-}" ]; then phase_timeout_var="PROVIDER_TIMEOUT_${LOOP_PHASE}"; timeout=${!phase_timeout_var:-${PROVIDER_TIMEOUT:-900}}
+  else timeout=${PROVIDER_TIMEOUT:-900}; fi
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo 'PROVIDER_TIMEOUT must be a positive integer' >&2; return 64; }
   command -v perl >/dev/null 2>&1 || { echo 'Perl is required for provider process isolation' >&2; return 69; }
   perl -MPOSIX -e 'POSIX::setpgid(0,0); exec @ARGV or exit 127' "$@" & provider_pid=$!
