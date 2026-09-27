@@ -96,10 +96,27 @@ covers the whole configuration generically. Because the orchestrator clears
 the environment before it runs a provider, configure writes the chosen values
 into the generated provider wrapper as the plain `PROVIDER_TIMEOUT` for
 `default` and `PROVIDER_TIMEOUT_<PHASE>` for each phase; a phase variable wins
-over the plain one. Both variables also work when set directly in the shell for
-one manual run, and continue to override whatever `configure` wrote — this is
-unrelated to `CHAT_PROVIDER_TIMEOUT_SECONDS`, which bounds a chat-hosted node
-waiting on `chat_submit` instead of a CLI subprocess.
+over the plain one.
+
+A signed value always wins over an inherited `PROVIDER_TIMEOUT` /
+`PROVIDER_TIMEOUT_<PHASE>` environment variable: once `default` is signed, the
+wrapper exports every phase explicitly (its own configured value, or the
+signed default), so an ambient variable for a phase you never listed cannot
+slip past the signed default either — an unsigned value is neither covered by
+the host signature nor bound by the 86400s cap `configure` enforces. The
+environment variables still work exactly as before for a phase that `timeouts`
+does not cover at all (no entry for that phase and no signed default), and for
+a manual run against a project with no `timeouts` configured. This is unrelated
+to `CHAT_PROVIDER_TIMEOUT_SECONDS`, which bounds a chat-hosted node waiting on
+`chat_submit` instead of a CLI subprocess.
+
+`SCOUT` is a valid key too, but a scout run never executes the generated
+wrapper — only the bundled, unmodified provider for the configured host, for
+containment (see [the scout loop](LOOP-MODES.md#scout-loop)). A scout instead
+reads the plain number straight out of the already-verified signed
+configuration (`timeouts.SCOUT`, falling back to `timeouts.default`, falling
+back to the built-in 900s) and applies it directly; nothing about the
+generated wrapper or `PROVIDER_TIMEOUT` environment variables is involved.
 
 Valid host values are codex, claude, chat, and mock. chat means chat-hosted
 execution: the chat does each node through chat_next and chat_submit, and the

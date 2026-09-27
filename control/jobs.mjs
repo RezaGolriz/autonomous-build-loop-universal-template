@@ -57,7 +57,22 @@ async function wrapProvider(control, role, host, providerPath, cliPath, enabled,
   for (const [key, model] of Object.entries(models || {})) exports.push(`export ${prefix}_MODEL${key === 'default' ? '' : `_${key}`}=${shellQuote(model)}`);
   // PROVIDER_TIMEOUT is host-agnostic (read by engine/provider-runtime.sh, shared
   // by every host script), so it is never prefixed the way CLAUDE_MODEL/CODEX_MODEL are.
-  for (const [key, seconds] of Object.entries(timeouts || {})) exports.push(`export PROVIDER_TIMEOUT${key === 'default' ? '' : `_${key}`}=${shellQuote(String(seconds))}`);
+  // A signed timeout has to win over an inherited, unsigned PROVIDER_TIMEOUT_<PHASE>
+  // -- the ambient one is not covered by the host signature and has none of the
+  // 86400s cap configure enforces. Once anything is signed, every phase gets its
+  // own explicit export (its own value, or the signed default) so an inherited
+  // env var for an unlisted phase can never slip past a signed default; a phase
+  // with neither a specific entry nor a signed default is left alone, exactly as
+  // before, so a plain manual PROVIDER_TIMEOUT / PROVIDER_TIMEOUT_<PHASE> still
+  // works when nothing was signed for that phase.
+  if (hasTimeouts) {
+    if (timeouts.default !== undefined) exports.push(`export PROVIDER_TIMEOUT=${shellQuote(String(timeouts.default))}`);
+    for (const key of PROVIDER_TIMEOUT_KEYS) {
+      if (key === 'default') continue;
+      const seconds = timeouts[key] ?? timeouts.default;
+      if (seconds !== undefined) exports.push(`export PROVIDER_TIMEOUT_${key}=${shellQuote(String(seconds))}`);
+    }
+  }
   await atomicText(wrapper, `#!/bin/sh\n${exports.join('\n')}\nexec ${shellQuote(providerPath)}\n`, 0o700); await fs.chmod(wrapper, 0o700);
   return wrapper;
 }

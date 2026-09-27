@@ -100,7 +100,39 @@ test('configure accepts a per-phase provider timeout, signs it, and bakes it int
     const wrapperSource = await fs.readFile(host.provider_path, 'utf8');
     assert.match(wrapperSource, /export PROVIDER_TIMEOUT='1800'/);
     assert.match(wrapperSource, /export PROVIDER_TIMEOUT_EXECUTE='600'/);
+    // Once a default is signed, every other phase gets its own explicit export
+    // too (the signed default, since it has no entry of its own) -- otherwise
+    // an inherited, unsigned PROVIDER_TIMEOUT_REVIEW could slip past the signed
+    // default for a phase nobody explicitly listed.
+    assert.match(wrapperSource, /export PROVIDER_TIMEOUT_REVIEW='1800'/);
   } finally { process.env.PATH = previousPath; }
+});
+
+test('a signed provider timeout wins over an inherited, unsigned PROVIDER_TIMEOUT_<PHASE>, including for a phase covered only by the signed default', async () => {
+  const root = await temporary(); const probe = path.join(root, 'probe.sh');
+  await fs.writeFile(probe, '#!/bin/sh\necho "$PROVIDER_TIMEOUT|$PROVIDER_TIMEOUT_EXECUTE|$PROVIDER_TIMEOUT_REVIEW"\n'); await fs.chmod(probe, 0o700);
+  const configured = await dispatch(root, 'configure', { host: 'codex', provider_path: probe, timeouts: { default: 5, REVIEW: 20 } });
+  assert.equal(configured.ok, true, JSON.stringify(configured));
+  const host = JSON.parse(await fs.readFile(path.join(root, '.loop', 'host.local.json'), 'utf8'));
+  // An inherited PROVIDER_TIMEOUT of 9999s and a PROVIDER_TIMEOUT_EXECUTE of
+  // 100s (unsigned, and above the 86400s cap configure itself enforces) must
+  // not reach the provider: EXECUTE has no entry of its own, so it falls back
+  // to the signed default (5), not the ambient 9999 or 100. REVIEW keeps its
+  // own signed value (20), not the ambient 100.
+  const result = await execFileAsync(host.provider_path, [], { env: { ...process.env, PROVIDER_TIMEOUT: '9999', PROVIDER_TIMEOUT_EXECUTE: '100', PROVIDER_TIMEOUT_REVIEW: '100' } });
+  assert.equal(result.stdout.trim(), '5|5|20');
+});
+
+test('an environment timeout still applies to a phase that signed timeouts does not cover at all', async () => {
+  const root = await temporary(); const probe = path.join(root, 'probe.sh');
+  await fs.writeFile(probe, '#!/bin/sh\necho "$PROVIDER_TIMEOUT|$PROVIDER_TIMEOUT_EXECUTE|$PROVIDER_TIMEOUT_REVIEW"\n'); await fs.chmod(probe, 0o700);
+  // No `default`, and only EXECUTE is signed: REVIEW has no signed value at
+  // all, so an ambient variable is still exactly what decides it, as before.
+  const configured = await dispatch(root, 'configure', { host: 'codex', provider_path: probe, timeouts: { EXECUTE: 5 } });
+  assert.equal(configured.ok, true, JSON.stringify(configured));
+  const host = JSON.parse(await fs.readFile(path.join(root, '.loop', 'host.local.json'), 'utf8'));
+  const result = await execFileAsync(host.provider_path, [], { env: { ...process.env, PROVIDER_TIMEOUT: '42', PROVIDER_TIMEOUT_REVIEW: '77' } });
+  assert.equal(result.stdout.trim(), '42|5|77');
 });
 
 test('doctor never executes a planted project authentication command', async () => {
