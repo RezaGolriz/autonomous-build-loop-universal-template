@@ -6,7 +6,12 @@
 // dashboard and confirmation links hand out: valid once, within 10 minutes) or
 // the project's durable token (/?k=<token>, printed only at an interactive
 // terminal by build-loop serve --show-link). The page trades either for a
-// session cookie (HttpOnly, SameSite=Strict, 12 hours) and redirects to /. The
+// session cookie (HttpOnly, SameSite=Lax, 12 hours) and redirects to /. Lax,
+// not Strict: a link opened from another app is a cross-site navigation, and
+// browsers hold back a Strict cookie on the redirect that follows it, so the
+// page would answer "open through a fresh link" right after a valid one.
+// Decisions stay protected: Lax is not sent on cross-site POSTs, and every POST
+// also needs this page's Origin and the session's form token. The
 // redirect keeps the token out of the address bar, but it does not erase it from
 // browser history or a proxy log; that is why links handed to a chat are
 // single-use. Everything else needs that session; without it the answer is 403.
@@ -325,14 +330,14 @@ const server = http.createServer(async (req, res) => {
       const tokenSha = await redeemBootstrapToken(root, url.searchParams.get('b'));
       if (!tokenSha) { plain(res, 403, 'This link is not valid any more: a single-use link works once, within 10 minutes, and not after the token was rotated. Ask for a fresh link (loop_serve, or build-loop serve).'); return; }
       const id = openSession(tokenSha);
-      res.writeHead(303, { Location: '/', 'Set-Cookie': `${COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}` });
+      res.writeHead(303, { Location: '/', 'Set-Cookie': `${COOKIE}=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}` });
       res.end(); return;
     }
     if (req.method === 'GET' && url.pathname === '/' && url.searchParams.has('k')) {
       const stored = await readControlPageToken(root);
       if (!tokenMatches(url.searchParams.get('k'), stored)) { plain(res, 403, 'This link is not valid (the token may have been rotated). Ask for a fresh link: build-loop serve.'); return; }
       const id = openSession(sha256(stored));
-      res.writeHead(303, { Location: '/', 'Set-Cookie': `${COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}` });
+      res.writeHead(303, { Location: '/', 'Set-Cookie': `${COOKIE}=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}` });
       res.end(); return;
     }
     const session = await sessionOf(req);

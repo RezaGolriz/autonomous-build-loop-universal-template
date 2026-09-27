@@ -48,7 +48,7 @@ async function login(link) {
   assert.equal(answer.status, 303);
   assert.equal(answer.headers.location, '/');
   const set = answer.headers['set-cookie'][0];
-  assert.match(set, /HttpOnly/); assert.match(set, /SameSite=Strict/); assert.match(set, /Max-Age=43200/);
+  assert.match(set, /HttpOnly/); assert.match(set, /SameSite=Lax/, 'Strict would be held back on the redirect after a link opened from another app'); assert.match(set, /Max-Age=43200/);
   return set.split(';')[0];
 }
 

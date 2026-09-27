@@ -204,6 +204,15 @@ token is still required). Restart the control page after the update
 <project>`); until then, confirm at an interactive terminal with
 `build-loop <operation> --root <project> --input <file>`.
 
+## A fresh control page link ends on "Open the control page through a fresh link"
+
+Up to version 0.6.2 the session cookie was `SameSite=Strict`. A link opened
+from another app (a chat, a terminal, a messenger) is a cross-site navigation,
+and browsers hold back a Strict cookie on the redirect that follows, so the
+page refused the session it had just opened. Reloading the page usually
+helps. Since version 0.6.3 the cookie is `SameSite=Lax`; decisions still need
+the page's Origin and the form token.
+
 ## Every start fails with DISTRIBUTION_CHANGED after a package update
 
 The activation record binds the build-loop package files it was approved with.
