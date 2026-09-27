@@ -118,6 +118,32 @@ The shell orchestrator starts a provider with the target root as its working
 directory, a JSON node brief on stdin, and a minimal environment consisting of
 the adapter's allowed names plus loop identifiers.
 
+Unlike SCOUT (below) and the disposable activation probes, a DEFINE, DESIGN,
+EXECUTE, REVIEW, VALIDATE or HANDOVER node has to change the real project, so
+it is not run against a disposable copy, and `HOME` (along with `CLAUDE_CONFIG_DIR`
+or `CODEX_HOME`, when set) passes through from whoever started the loop unless
+that name is deliberately left unset. A CLI started with its ordinary `HOME`
+reads that account's own global configuration exactly as it would in an
+interactive session: its own `CLAUDE.md`/`AGENTS.md`, its own hooks, and any
+skill that auto-triggers "for every task" can run inside a node and write its
+own cache or output into the node's working directory — the project root —
+where the path check then reports it as an out-of-scope change, no differently
+than any other unexpected write. This is a property of running a real,
+already-authenticated CLI with the working directory set to the project, not a
+build-loop defect; the path check catching it is exactly what it is for.
+To keep a provider session from picking up personal global configuration,
+export `CLAUDE_CONFIG_DIR` (Claude Code CLI) or `CODEX_HOME` (Codex CLI) to a
+directory that holds only that CLI's own auth/session state and none of your
+personal `CLAUDE.md`, skills, or hooks, before starting the loop (`configure`,
+`doctor` and every run already forward and check authentication against
+whichever of these two names is set, so `doctor` still reports the isolated
+CLI as authenticated). This has to be a directory with valid credentials
+already in it, not an empty one, or the CLI will appear unauthenticated: build
+it once for the account that runs build-loop by copying that CLI's session and
+credential files (not its `CLAUDE.md`, skills or hooks) out of the default
+`~/.claude` or `~/.codex` into a project-independent directory reserved for
+build-loop, and reuse it for every project's provider configuration.
+
 For DEFINE, DESIGN, EXECUTE, VALIDATE, and HANDOVER, stdout is one normalized
 JSON result:
 
