@@ -37,7 +37,7 @@ import {
   assertControlPath, atomicJson, confirmationPolicy, ensureRuntimeIgnore, isLoopbackAddress, nonce, now, pageServerBinding, readJson, resolveRoot, sha256,
 } from './common.mjs';
 import { controlPageFiles, ensureControlPageToken, readControlPageRuntime, readControlPageToken, redeemBootstrapToken, tokenMatches } from './control-page.mjs';
-import { humanOperations, listPendingConfirmations, recordConfirmation, requestDigest } from './confirm.mjs';
+import { humanOperations, requestDigest } from './confirm.mjs';
 import { humanDecision, settleHumanDecisions } from './human-ops.mjs';
 import { renderDashboard } from './dashboard.mjs';
 import { backlogSummary, readAuthorization } from './backlog.mjs';
@@ -45,6 +45,7 @@ import { readInboxIndex } from './scout.mjs';
 import { placeHold, readHold } from './hold.mjs';
 import { check } from './check.mjs';
 import { validateOperation } from './schemas.mjs';
+import { dashboardDecisions, confirmDashboardDecision } from './dashboard-decisions.mjs';
 
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const COOKIE = 'build_loop_session';
@@ -145,18 +146,34 @@ async function readBody(req, limit = 16384) {
 
 const csrfField = (session) => `<input type="hidden" name="csrf" value="${esc(session.csrf)}">`;
 
-function pendingCard(request, session) {
+function pendingCard(request, session, target, displayDigest = requestDigest(request)) {
   const word = humanOperations[request.operation];
   const rows = request.summary.map((entry) => `<dt>${esc(entry.label)}</dt><dd>${esc(entry.value)}</dd>`).join('');
   return `<div class="decision"><h3>${esc(request.operation)}${request.item_id ? ` · ${esc(request.item_id)}` : ''}</h3>`
     + `<dl>${rows}<dt>Request expires</dt><dd>${esc(request.expires_at)}</dd></dl>`
     + `<details><summary>Technical digest</summary><pre>${esc(JSON.stringify({ request_id: request.request_id, request_digest: requestDigest(request) }, null, 2))}</pre></details>`
-    + `<form method="post" action="/decide">${csrfField(session)}`
+    + `<form method="post" action="/decide">${csrfField(session)}${targetFields(target)}`
     + `<input type="hidden" name="request_id" value="${esc(request.request_id)}">`
-    + `<input type="hidden" name="request_digest" value="${esc(requestDigest(request))}">`
+    + `<input type="hidden" name="request_digest" value="${esc(displayDigest)}">`
     + `<label for="w-${esc(request.request_id)}">Type <code>${esc(word)}</code> to confirm this exact decision</label>`
     + `<input id="w-${esc(request.request_id)}" name="decision" autocomplete="off" autocapitalize="characters" spellcheck="false" required>`
     + ` <button>Confirm this exact decision</button></form></div>`;
+}
+
+const targetFields = target => `<input type="hidden" name="package_id" value="${esc(target.package_id)}"><input type="hidden" name="spec_digest" value="${esc(target.spec_digest)}">`;
+
+function setupCard(entry, session) {
+  const { target, request, summary, fingerprint } = entry;
+  return `<div class="decision"><h3>Approve setup · ${esc(target.label)}</h3><p>Project: <code>${esc(target.root)}</code></p>`
+    + `<p>${esc(summary.request)}</p><dl><dt>Models and providers</dt><dd>${esc(JSON.stringify(summary.provider))}</dd>`
+    + `<dt>Allowed changes</dt><dd>${esc(summary.allowed_paths.join(', '))}</dd><dt>Frozen paths</dt><dd>${esc(summary.frozen_paths.join(', '))}</dd>`
+    + `<dt>Positive checks</dt><dd>${esc(summary.commands.map(c => `${c.argv.join(' ')} (${c.timeout_seconds}s)`).join('; '))}</dd>`
+    + `<dt>Negative check</dt><dd>${esc(summary.negative_control.argv.join(' '))} must exit ${esc(summary.negative_control.expected_exit_code)}</dd>`
+    + `<dt>Expires</dt><dd>${esc(request.expires_at)}</dd></dl><details><summary>Complete exact proposal</summary><pre>${esc(JSON.stringify(summary, null, 2))}</pre></details>`
+    + `<p>This approves the setup and disposable probes only. It does not activate the project, authorize work, or accept a result.</p>`
+    + `<form method="post" action="/decide">${csrfField(session)}${targetFields(target)}<input type="hidden" name="kind" value="setup">`
+    + `<input type="hidden" name="request_id" value="${esc(request.approval_id)}"><input type="hidden" name="request_digest" value="${esc(fingerprint)}">`
+    + `<label>Type <code>APPROVE</code> to approve this exact setup<input name="decision" autocomplete="off" spellcheck="false" required></label><button>Approve this exact setup</button></form></div>`;
 }
 
 async function directActions(session, status) {
@@ -201,16 +218,18 @@ const holdForm = (session) => `<form method="post" action="/action">${csrfField(
 async function panel(session, message) {
   const policy = await confirmationPolicy(root).catch(() => ({ human_confirmation: 'tty-only', error: { message: 'the policy cannot be read' } }));
   const status = await check(root).catch(() => null);
-  const pending = await listPendingConfirmations(root).catch(() => []);
+  const decisions = await dashboardDecisions(root);
+  const pending = decisions.entries;
   let body;
   if (policy.human_confirmation === 'tty-only') {
     body = `<p>This project accepts human decisions only as a word typed at an interactive terminal${policy.error ? ` (the policy file is broken: ${esc(policy.error.message)})` : ''}. Nothing can be decided on this page; run the command at your own terminal, for example <code>build-loop accept --root ${esc(root)}</code>.</p>`;
   } else if (pending.length) {
-    body = `<p>${pending.length} decision(s) wait for you. Each shows exactly what will happen, frozen when it was asked for. Nothing is recorded until you type the word and press the button.</p>${pending.map((request) => pendingCard(request, session)).join('')}${await readHold(root).catch(() => null) ? '' : holdForm(session)}`;
+    body = `<p>${pending.length} decision(s) wait for you. Each shows exactly what will happen, frozen when it was asked for. Nothing is recorded until you type the word and press the button.</p>${pending.map(entry => entry.kind === 'setup' ? setupCard(entry, session) : `<h3>${esc(entry.target.label)}</h3><p><code>${esc(entry.target.root)}</code></p>${pendingCard(entry.request, session, entry.target, entry.fingerprint)}`).join('')}${await readHold(root).catch(() => null) ? '' : holdForm(session)}`;
   } else {
     const actions = await directActions(session, status);
     body = `<p>No decision is waiting. You can start one here; a button with … first shows you the exact frozen decision, and it is only recorded after you type its word.</p>${actions}`;
   }
+  body += decisions.notices.map(text => `<p class="flash bad">${esc(text)}</p>`).join('');
   const flash = message ? `<p class="flash ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</p>` : '';
   const where = isLoopbackAddress(binding.listen) ? 'This page is served on this machine only.' : `This page is served on ${esc(binding.listen)} so a phone inside your private network or VPN can open it. Anyone who can reach it and has the link can act here.`;
   return `<style>.decisions input:not([type]),.decisions input[name=decision],.decisions input[inputmode]{font:inherit;padding:10px;border:1px solid #899bad;border-radius:6px;width:100%}.decisions form{margin:14px 0;padding:14px;border:1px solid #d8e0ea;border-radius:10px}.decisions .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.decisions dt{font-weight:650;margin-top:6px}.decisions dd{margin-left:0}.decision{border-top:1px solid #d8e0ea;padding-top:8px}.flash{padding:10px;border-radius:8px}.flash.ok{background:#dcfce7}.flash.bad{background:#fde2e2}</style>`
@@ -237,26 +256,21 @@ async function decide(form, session, res) {
   if (Date.now() < lockedUntil) { plain(res, 429, 'Too many wrong words. Wait a minute, then try again.'); return; }
   const policy = await confirmationPolicy(root);
   if (policy.human_confirmation === 'tty-only') { await renderPage(res, session, 409, { ok: false, text: 'This project accepts decisions only at an interactive terminal. Nothing was recorded.' }); return; }
-  const requestId = form.get('request_id') || '';
-  const request = (await listPendingConfirmations(root)).find((entry) => entry.request_id === requestId);
-  if (!request) { await renderPage(res, session, 409, { ok: false, text: 'That decision is no longer waiting (it was decided, expired or withdrawn). Nothing was recorded.' }); return; }
-  const digest = requestDigest(request);
-  if (form.get('request_digest') !== digest) { await renderPage(res, session, 409, { ok: false, text: 'This form does not belong to the decision on the page any more. Nothing was recorded; look at it again.' }); return; }
-  const word = humanOperations[request.operation];
+  const entries = (await dashboardDecisions(root)).entries;
+  const entry = entries.find(item => item.target.package_id === (form.get('package_id') || '') && (item.kind === 'setup' ? item.request.approval_id : item.request.request_id) === form.get('request_id'));
+  if (!entry) { await renderPage(res, session, 409, { ok: false, text: 'That decision is no longer waiting. Nothing was recorded.' }); return; }
+  const word = entry.kind === 'setup' ? 'APPROVE' : humanOperations[entry.request.operation];
   const typed = (form.get('decision') || '').trim();
   if (typed !== word) {
     wrongWords += 1;
     if (wrongWords >= WRONG_WORDS) { wrongWords = 0; lockedUntil = Date.now() + LOCKOUT_MS; }
-    await renderPage(res, session, 400, { ok: false, text: `Type ${word} exactly to confirm. Nothing was recorded.` });
-    return;
+    await renderPage(res, session, 400, { ok: false, text: `Type ${word} exactly to confirm. Nothing was recorded.` }); return;
   }
   wrongWords = 0;
-  await recordConfirmation(root, requestId, typed, digest);
-  const settled = await settleHumanDecisions(root);
-  await fs.rm(path.join(scheduler, 'operation-runtime', `${requestId}.json`), { force: true });
-  const outcome = settled.find((entry) => entry.request_id === requestId)?.result;
-  if (outcome?.ok === false) redirectHome(res, session, { ok: false, text: `Not carried out: ${outcome.error?.message || 'the decision could not be carried out.'}` });
-  else redirectHome(res, session, { ok: true, text: `Confirmed: the ${request.operation} decision was recorded and carried out (local-user-action).` });
+  const outcome = await confirmDashboardDecision(root, { kind: form.get('kind') || 'operation', package_id: form.get('package_id') || '', spec_digest: form.get('spec_digest') || '', request_id: form.get('request_id') || '', request_digest: form.get('request_digest') || '', decision: typed });
+  redirectHome(res, session, outcome?.ok === false
+    ? { ok: false, text: `Not carried out: ${outcome.error?.message || 'the decision could not be carried out.'}` }
+    : { ok: true, text: outcome.operation === 'setup' ? `Confirmed: ${entry.target.label} setup approval was recorded; no work started (local-user-action).` : `Confirmed: the ${outcome.operation} decision was recorded and carried out (local-user-action).` });
 }
 
 const intField = (form, name) => {

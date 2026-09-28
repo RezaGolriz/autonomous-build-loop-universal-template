@@ -305,3 +305,91 @@ test('/healthz answers ok without a session, and nothing else does', async (t) =
     assert.equal(answer.status, 403, `${method} ${route} needs a session`);
   }
 });
+
+// These confirmations use disposable fixtures and private test trust only.
+// They never touch or open the user's real trial approval URLs.
+test('main dashboard collects child setup approvals and binds scope, models and session', async (t) => {
+  const root = await project(t);
+  const child = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-child-')));
+  const other = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-other-')));
+  const prepared = await dispatch(child, 'demo', { kind: 'docs' });
+  assert.equal(prepared.ok, true, JSON.stringify(prepared));
+  for (const [id, workspace] of [['guide', child], ['other', other]]) {
+    const added = await dispatch(root, 'package_add', { package_id: id, workspace_root: workspace, budget: { soft_seconds: 60, hard_ceiling_seconds: 60 } });
+    assert.equal(added.ok, true, JSON.stringify(added));
+  }
+  const { link, url } = await serveControlPage(root);
+  const cookie = await login(link);
+  const requested = await dispatch(root, 'package_control', { package_id: 'guide', operation: 'request_approval' });
+  assert.equal(requested.ok, true, JSON.stringify(requested));
+  assert.equal(requested.control_page, true);
+  assert.equal(new URL(requested.confirmation_url).origin, url);
+  const entries = await fs.readdir(path.join(child, '.loop', 'control', 'approval-runtime'));
+  assert.ok(!entries.some(name => name.endsWith('.ready.json')), 'no separate setup server was started');
+  let page = await send(`${url}/`, { cookie });
+  assert.match(page.text, /Approve setup · guide/);
+  assert.ok(page.text.includes(child));
+  const setupFields = html => {
+    const block = [...html.matchAll(/<form method="post" action="\/decide">([\s\S]*?)<\/form>/g)].map(match => match[1]).find(text => text.includes('name="kind" value="setup"'));
+    assert.ok(block, 'setup form present');
+    return Object.fromEntries([...block.matchAll(/name="([^"]+)" value="([^"]*)"/g)].map(match => [match[1], match[2]]));
+  };
+  let fields = { ...setupFields(page.text), decision: 'APPROVE' };
+  const post = fields => send(`${url}/decide`, { method: 'POST', cookie, origin: url, body: form(fields) });
+  const receiptPath = path.join(child, '.loop', 'control', 'approvals', `${requested.setup_digest}.json`);
+  const hasReceipt = () => fs.stat(receiptPath).then(() => true, () => false);
+  assert.equal((await post({ ...fields, csrf: 'wrong' })).status, 403);
+  assert.equal((await post({ ...fields, package_id: 'other' })).status, 409);
+  assert.equal((await post({ ...fields, spec_digest: 'wrong' })).status, 303);
+  assert.equal(await hasReceipt(), false);
+  const saved = `${child}-saved`;
+  await fs.rename(child, saved);
+  const unavailable = await send(`${url}/`, { cookie });
+  assert.equal(unavailable.status, 200, 'a missing child must not take down the main dashboard');
+  assert.match(unavailable.text, /Work packages unavailable/);
+  await fs.cp(saved, child, { recursive: true });
+  assert.equal((await post(fields)).status, 303);
+  assert.equal(await hasReceipt(), false, 'a replacement directory at the same path cannot reuse the displayed approval');
+  await fs.rm(child, { recursive: true }); await fs.rename(saved, child);
+  const configured = await dispatch(child, 'configure', { host: 'mock', models: { default: 'changed-model' } });
+  assert.equal(configured.ok, true);
+  assert.equal((await post(fields)).status, 409);
+  assert.equal(await hasReceipt(), false, 'a changed provider/model cannot inherit approval');
+  const renewed = await dispatch(root, 'package_control', { package_id: 'guide', operation: 'request_approval' });
+  assert.equal(renewed.ok, true, JSON.stringify(renewed));
+  assert.notEqual(renewed.approval_id, requested.approval_id, 'changed model needs a new request');
+  page = await send(`${url}/`, { cookie });
+  assert.match(page.text, /changed-model/);
+  fields = { ...setupFields(page.text), decision: 'APPROVE' };
+  await fs.writeFile(path.join(child, '.loop', 'control', 'policy.json'), JSON.stringify({ human_confirmation: 'tty-only' }));
+  assert.equal((await post(fields)).status, 409);
+  assert.equal(await hasReceipt(), false, 'child tty-only cannot be bypassed through the parent');
+  await fs.rm(path.join(child, '.loop', 'control', 'policy.json'));
+  assert.equal((await post(fields)).status, 303);
+  const receipt = await readJson(receiptPath);
+  assert.equal(receipt.channel, 'local-http-user');
+  assert.equal(receipt.approval_id, renewed.approval_id);
+  assert.ok(receipt.host_signature);
+  assert.equal(await fs.stat(path.join(child, '.loop', 'state.json')).then(() => true, () => false), false, 'approval does not activate or start');
+  const again = await post(fields);
+  assert.equal(again.status, 409, 'one-shot decision cannot be submitted twice');
+});
+
+test('registered child work confirmations appear and settle in the main dashboard', async (t) => {
+  const root = await project(t), child = await project(t);
+  assert.equal((await dispatch(root, 'package_add', { package_id: 'child', workspace_root: child, budget: { soft_seconds: 60, hard_ceiling_seconds: 60 } })).ok, true);
+  assert.equal((await dispatch(child, 'backlog_add', { id: 'WI-CHILD', title: 'Child task', outcome: 'A bounded child result' })).ok, true);
+  const { link, url } = await serveControlPage(root), cookie = await login(link);
+  const request = await dispatch(root, 'package_control', { package_id: 'child', operation: 'authorize', input: { item_id: 'WI-CHILD', allowed_paths: ['docs/**'], max_rounds: 6, max_wall_seconds: 60, expires_in_seconds: 600, confirm: 'AUTHORIZE' } });
+  assert.equal(request.ok, true, JSON.stringify(request)); assert.equal(request.control_page, true);
+  const page = await send(`${url}/`, { cookie });
+  const block = [...page.text.matchAll(/<form method="post" action="\/decide">([\s\S]*?)<\/form>/g)].map(match => match[1]).find(text => text.includes(request.request_id));
+  assert.ok(block);
+  const fields = Object.fromEntries([...block.matchAll(/name="([^"]+)" value="([^"]*)"/g)].map(match => [match[1], match[2]]));
+  assert.notEqual(fields.request_digest, request.request_digest, 'child display binds the registered root and package identity');
+  const done = await send(`${url}/decide`, { method: 'POST', cookie, origin: url, body: form({ ...fields, decision: 'AUTHORIZE' }) });
+  assert.equal(done.status, 303, done.text);
+  const record = await readJson(path.join(child, '.loop', 'work-items', 'WI-CHILD.authorization.json'));
+  assert.equal(record.state, 'READY'); assert.deepEqual(record.scope.allowed_paths, ['docs/**']);
+  assert.equal(await fs.stat(path.join(root, '.loop', 'work-items', 'WI-CHILD.authorization.json')).then(() => true, () => false), false);
+});

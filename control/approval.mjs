@@ -3,12 +3,23 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ControlError, assertControlPath, atomicJson, exactKeys, exists, nonce, now, readJson, resolveRoot, sha256 } from './common.mjs';
+import { ControlError, acquireDirLock, assertControlPath, atomicJson, exactKeys, exists, jsonDigest, nonce, now, readJson, resolveRoot, sha256 } from './common.mjs';
 import { verifyPlanForApproval } from './setup.mjs';
+
+import { runningControlPageLink } from './control-page.mjs';
 
 const serverPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'approval-server.mjs');
 
 export async function recordTrustedApproval(root, setupDigest, channel, requestId = null) {
+  root = await resolveRoot(root);
+  const { control } = await assertControlPath(root);
+  await fs.mkdir(control, { recursive: true });
+  const release = await acquireDirLock(path.join(control, 'setup-approval.lock'), { operation: 'record-setup-approval' });
+  try { return await recordTrustedApprovalUnlocked(root, setupDigest, channel, requestId); }
+  finally { await release(); }
+}
+
+async function recordTrustedApprovalUnlocked(root, setupDigest, channel, requestId) {
   if (!['local-http-user', 'interactive-tty'].includes(channel)) throw new ControlError('INVALID_APPROVAL_CHANNEL', 'untrusted approval channel');
   root = await resolveRoot(root);
   const { control } = await assertControlPath(root); const plan = await verifyPlanForApproval(root);
@@ -16,6 +27,22 @@ export async function recordTrustedApproval(root, setupDigest, channel, requestI
   if (channel === 'local-http-user') {
     const current = await readJson(path.join(control, 'current-approval-request.json'), 'current approval request');
     if (!requestId || current.approval_id !== requestId || current.setup_digest !== setupDigest) throw new ControlError('APPROVAL_SUPERSEDED', 'this approval request is no longer current');
+    const request = await readJson(path.join(control, 'approval-requests', `${requestId}.json`));
+    if (!(Date.parse(request.expires_at) > Date.now())) throw new ControlError('CONFIRMATION_EXPIRED', 'The setup request expired.');
+    if (jsonDigest(request.summary) !== jsonDigest(await approvalSummary(root, plan))) throw new ControlError('CONFIRMATION_STALE', 'Setup or provider details changed after the request was prepared.');
+  }
+  const receiptPath = path.join(control, 'approvals', `${setupDigest}.json`);
+  if (await exists(receiptPath)) {
+    const existing = await readJson(receiptPath);
+    try {
+      await verifyApproval(root, existing);
+      if (existing.setup_digest !== setupDigest) throw new ControlError('CONFIRMATION_STALE', 'Approval fingerprint changed.');
+      return existing;
+    } catch (error) {
+      // A forged project-side file is not approval and cannot prevent the
+      // person's newly confirmed exact proposal from being recorded.
+      if (error.code !== 'APPROVAL_UNTRUSTED') throw error;
+    }
   }
   const approval = { schema_version: 1, approval_id: requestId || `approval-${nonce(12)}`, setup_digest: setupDigest, decision: 'APPROVE', channel, approved_at: now() };
   approval.host_signature = await signApproval(root, approval);
@@ -38,6 +65,9 @@ export async function approvalSummary(root, plan) {
     review_host: host.review_host,
     review_provider_path: host.review_provider_path,
     authentication_check_configured: Boolean(host.auth_check),
+    models: host.models ?? null, timeouts: host.timeouts ?? null,
+    cli_path: host.cli_path ?? null, review_cli_path: host.review_cli_path ?? null,
+    host_config_digest: jsonDigest(host),
   } : null;
   return {
     project: path.basename(root),
@@ -71,27 +101,28 @@ export async function approvalSummary(root, plan) {
   };
 }
 
-export async function requestApproval(root, args = {}) {
+export async function requestApproval(root, args = {}, options = {}) {
   exactKeys(args, [], [], 'args');
   const { control } = await assertControlPath(root); const plan = await verifyPlanForApproval(root);
   if (await exists(path.join(control, 'approvals', `${plan.setup_digest}.json`))) {
     const receipt = await readJson(path.join(control, 'approvals', `${plan.setup_digest}.json`));
     try { await verifyApproval(root, receipt); return { ok: true, already_approved: true, setup_digest: plan.setup_digest, next: 'activate' }; } catch {} // An untrusted project receipt cannot suppress a fresh human review.
   }
+  const pageLink = await runningControlPageLink(options.dashboardRoot || root).catch(() => null);
+  const summary = await approvalSummary(root, plan);
   const currentFile = path.join(control, 'current-approval-request.json');
   if (await exists(currentFile)) {
     const current = await readJson(currentFile, 'current approval request').catch(() => null);
     if (current?.setup_digest === plan.setup_digest) {
       const requestFile = path.join(control, 'approval-requests', `${current.approval_id}.json`); const runtimeFile = path.join(control, 'approval-runtime', `${current.approval_id}.json`); const readyFile = path.join(control, 'approval-runtime', `${current.approval_id}.ready.json`);
-      if (await exists(requestFile) && await exists(runtimeFile) && await exists(readyFile)) {
-        const request = await readJson(requestFile); const runtime = await readJson(runtimeFile); const endpoint = await readJson(readyFile);
-        if (Date.parse(request.expires_at) > Date.now()) return { ok: true, idempotent: true, approval_id: current.approval_id, setup_digest: plan.setup_digest, confirmation_url: `${endpoint.origin}/review?token=${encodeURIComponent(runtime.token)}`, expires_at: request.expires_at, assurance: 'local-user-action' };
+      if (await exists(requestFile) && await exists(runtimeFile) && (pageLink || await exists(readyFile))) {
+        const request = await readJson(requestFile); const runtime = await readJson(runtimeFile); const endpoint = pageLink ? null : await readJson(readyFile);
+        if (Date.parse(request.expires_at) > Date.now() && jsonDigest(request.summary) === jsonDigest(summary)) return { ok: true, idempotent: true, approval_id: current.approval_id, setup_digest: plan.setup_digest, confirmation_url: pageLink || `${endpoint.origin}/review?token=${encodeURIComponent(runtime.token)}`, ...(pageLink ? { control_page: true } : {}), expires_at: request.expires_at, assurance: 'local-user-action' };
       }
     }
   }
   const approvalId = `request-${nonce(12)}`; const token = nonce(24);
   const runtimeDir = path.join(control, 'approval-runtime'); await fs.mkdir(runtimeDir, { recursive: true });
-  const summary = await approvalSummary(root, plan);
   const request = {
     schema_version: 1,
     approval_id: approvalId,
@@ -104,6 +135,7 @@ export async function requestApproval(root, args = {}) {
   await atomicJson(path.join(control, 'approval-requests', `${approvalId}.json`), request);
   await atomicJson(path.join(runtimeDir, `${approvalId}.json`), { token }, 0o600);
   await atomicJson(currentFile, { schema_version: 1, approval_id: approvalId, setup_digest: plan.setup_digest });
+  if (pageLink) return { ok: true, approval_id: approvalId, setup_digest: plan.setup_digest, confirmation_url: pageLink, control_page: true, expires_at: request.expires_at, assurance: 'local-user-action', instruction: 'Review the setup in the main dashboard and type APPROVE. Never confirm it yourself.' };
   const ready = path.join(runtimeDir, `${approvalId}.ready.json`);
   const log = await fs.open(path.join(runtimeDir, `${approvalId}.log`), 'a', 0o600);
   const child = spawn(process.execPath, [serverPath, root, approvalId], { detached: true, stdio: ['ignore', log.fd, log.fd] }); child.unref(); await log.close();

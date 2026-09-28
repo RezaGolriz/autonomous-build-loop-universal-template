@@ -314,6 +314,25 @@ browser. The GitHub file view itself shows source code.
 
 ## Use the control page
 
+For a team, this is your **main dashboard**: package progress, agent status and
+human decisions belong on this one page. Ask:
+
+> Open the main Build Loop dashboard for this team. Put the team approval,
+> each registered package's setup approval, and later work authorizations
+> in its Decisions panel. Do not approve anything for me.
+
+The assistant starts `serve` on the team controller **before** requesting
+approvals. You type `AUTHORIZE` for the team or work, and `APPROVE` for each
+setup. Every card names the exact project, paths, models and checks. Setup
+approval alone starts no work. Separate confirmation pages remain a fallback
+when the main dashboard is not running.
+
+The opening link works once, within ten minutes. After opening it, keep that
+browser tab or bookmark the clean page address: its session lasts twelve hours.
+If the opening link expired or your session ended, ask for a fresh dashboard
+link; that creates no approval.
+
+
 The control page is one small web page on your own computer. It shows the state
 of the project, and its **Decisions** panel is where you type the word for a
 human decision. Start it once, from the terminal or from chat:

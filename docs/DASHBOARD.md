@@ -362,3 +362,42 @@ authorize work or start a job. Paste the request into your agent, choose the
 exact participants and review the resulting proposals.
 
 Recovery details and limitations: [Teams](TEAMS.md).
+
+
+## One main dashboard for team approvals
+
+Use `serve` on the **team controller folder** before requesting decisions.
+The main page combines package progress with a **Decisions** panel. It lists
+team decisions and setup/work decisions for registered packages. You do not
+need a different dashboard for every package.
+
+Example:
+
+1. The team card asks you to type `AUTHORIZE` for the named builders/reviewers.
+2. The notes package and CSV package each show a setup card. Read the paths,
+   model choices, positive checks and negative check; type `APPROVE` separately.
+3. Activation runs the approved disposable checks. It does not authorize edits.
+4. Each work authorization appears on the same page; type `AUTHORIZE` after
+   reading its allowed paths, budget and expiry.
+5. Watch the package bars and overall progress as already-authorized work runs.
+
+```mermaid
+flowchart LR
+  A[Open main dashboard] --> B[Authorize team]
+  B --> C[Approve each package setup]
+  C --> D[Activation checks]
+  D --> E[Authorize each work package]
+  E --> F[Run and inspect progress]
+```
+
+A card is bound to its registered package and exact displayed proposal. Changed
+models, changed setup files, expired requests and stale forms are refused.
+A child with `tty-only` policy cannot be approved through its parent's page.
+Setup approval records permission only: it does not start or accept work.
+The standalone local confirmation pages remain available when no main page runs.
+
+Open the chat's dashboard link on the machine running Build Loop. The link is
+single-use and lasts ten minutes; after opening it, the browser session lasts
+twelve hours. Reload the clean page address to see new requests. If a request
+expired, ask the assistant to prepare a fresh one; it is never approved merely
+by refreshing the page.

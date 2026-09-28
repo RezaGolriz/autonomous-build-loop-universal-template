@@ -1,7 +1,7 @@
 import { loopOptions, resolveRunArgs } from './loop-options.mjs';
 import { openDashboard } from './dashboard.mjs';
 import { ControlError, confirmationPolicy, publicError, resolveRoot } from './common.mjs';
-import { autostartControlPage, controlPageAutostart, runningControlPage, serveControlPage } from './control-page.mjs';
+import { autostartControlPage, controlPageAutostart, runningControlPage, runningControlPageLink, serveControlPage } from './control-page.mjs';
 import { requestApproval as approvalRequest } from './approval.mjs';
 import { createDemo, inspectProject, prepareProject, prepareRebind } from './setup.mjs';
 import { answerBlocker, completeHandover, configureHost, createTask, doctor, launchActivation, launchJob, setIntent, status } from './jobs.mjs';
@@ -80,9 +80,14 @@ async function operate(root, operation, args, context) {
         if (['activate', 'chat_next', 'chat_submit'].includes(args.operation)) await assertNotHeld(root, 'mcp-user', 'package_control');
         if (args.operation === 'request_approval') {
           if (Object.keys(args.input ?? {}).some(x => !['expires_minutes'].includes(x))) throw new ControlError('UNKNOWN_FIELD', 'Invalid package approval input');
-          return await requestApproval(pkg.root, args.input ?? {});
+          return await approvalRequest(pkg.root, args.input ?? {}, { dashboardRoot: root });
         }
-        return { package_id: pkg.package_id, ...(await dispatch(pkg.root, args.operation, args.input ?? {}, context)) };
+        const result = await dispatch(pkg.root, args.operation, args.input ?? {}, context);
+        if (result.pending_confirmation) {
+          const pageLink = await runningControlPageLink(root).catch(() => null);
+          if (pageLink) return { ...result, package_id: pkg.package_id, confirmation_url: pageLink, control_page: true };
+        }
+        return { package_id: pkg.package_id, ...result };
       }
       case 'supervisor_start': return await supervisorStart(root, args, humanChannel(context));
       case 'supervisor_status': return await supervisorStatus(root, args);

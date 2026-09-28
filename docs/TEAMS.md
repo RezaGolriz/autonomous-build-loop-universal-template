@@ -170,16 +170,20 @@ The assistant should make these steps visible in plain language:
 1. Inspect the chosen project and run the control doctor.
 2. Ask **one at a time or parallel**, which exact builders and reviewers may
    participate, and whether CLI processes are permitted. Default to one package.
-3. Write a paused team proposal with `team_configure`; obtain its human
-   confirmation link with `team_authorize`.
+3. Start the main dashboard with `serve` on the team controller. Write a
+   paused team proposal with `team_configure`; request its decision with
+   `team_authorize`. It appears in the main Decisions panel.
 4. Register isolated workspaces with `package_add`. `prepare: true` makes an
    empty folder, not a copy of your repository. For real code, use separately
    prepared checkouts or worktrees. Shared paths and resources are explicit.
 5. Use `package_control` to inspect, configure and prepare each registered
    workspace. It selects a package ID, never an arbitrary replacement root.
-6. Hand each setup approval link to you. After you approve it, run its activation
-   probes. Obtain the separate work authorization through `authorize` and wait
-   for your typed confirmation. Team approval grants none of these permissions.
+6. Request each setup approval through `package_control`. With the main page
+   running, its Decisions panel collects those requests from registered roots.
+   You type `APPROVE` on each setup card. After approval, run its activation
+   probes. Obtain separate work authorization through `package_control` with
+   `authorize`; that decision also appears on the main page and needs your
+   typed `AUTHORIZE`. Team approval grants none of these permissions.
 7. For API workers, use `team_verify` explicitly for the selected members. A
    probe sends a small request and can incur API usage; status checks do not.
    API child workspaces use the same team config and their own team approval.

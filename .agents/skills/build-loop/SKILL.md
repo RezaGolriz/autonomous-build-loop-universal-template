@@ -227,6 +227,14 @@ roles, data scopes and time limits the person permits. team_configure writes
 a paused proposal; team_authorize returns a human confirmation link. Never
 open or submit that link yourself.
 
+Start `serve` on the team controller before asking for approvals. Hand its
+single-use link to the person; never open it yourself. The main Decisions panel
+collects team decisions, registered package setup approvals (typed APPROVE),
+and child work authorizations (typed AUTHORIZE). Use package_control for
+request_approval and authorize so their returned links point to the main page.
+A setup approval grants no activation or work authorization. Standalone local
+pages remain the fallback when the main page is not running.
+
 Register separate roots with package_add. prepare=true creates an empty
 folder, not a repository copy. Address registered children by package_id
 through package_control. Each keeps its own setup approval, activation and
