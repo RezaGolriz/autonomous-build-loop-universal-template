@@ -38,7 +38,7 @@ const requestIdPattern = /^confirm-[A-Za-z0-9_-]{6,64}$/;
 
 // The operations a person has to confirm, with the word that has to be typed —
 // at an interactive terminal, or into the field on the local confirmation page.
-export const humanOperations = Object.freeze({ accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE' });
+export const humanOperations = Object.freeze({ accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE', team_authorize: 'AUTHORIZE' });
 
 // Assurance of a decision recorded through the local confirmation page: a
 // person acting on this machine. Honest about what it is and is not.

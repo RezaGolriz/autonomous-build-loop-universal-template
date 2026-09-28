@@ -32,12 +32,14 @@ import { promote, proposalFingerprint } from './scout.mjs';
 import { holdSubject, readHold, releaseHold } from './hold.mjs';
 import { REVIEW_NOT_ISOLATED, recordedReview } from './chat.mjs';
 import { LOCAL_USER_ACTION, discardPendingConfirmations, humanOperations, requestConfirmation, settleConfirmations } from './confirm.mjs';
+import { teamApprovalSubject, authorizeTeamFrozen } from './team-approval.mjs';
 
 const TTY_ONLY_DISCARDED = 'this project now accepts human decisions only as a word typed at an interactive terminal; the pending page request was thrown away';
 
 // Runners for a confirmed request. Each receives the frozen request and checks
 // it against the live project inside the lock in which it does the work.
 const runners = {
+  team_authorize: (root, request) => authorizeTeamFrozen(root, request.decision.subject, 'local-http-user'),
   accept: (root, request) => accept(root, { ...request.decision.args, confirm: humanOperations.accept }, 'local-http-user', request.decision.subject),
   authorize: (root, request) => authorizeFrozen(root, request.decision.record, request.decision.subject),
   promote: (root, request) => promote(root, request.decision.args, 'local-http-user', request.decision.subject),
@@ -60,6 +62,7 @@ export async function settleHumanDecisions(root, policy = null) {
 // left it implicit.
 async function decisionItem(root, operation, args) {
   const loop = path.join(root, '.loop');
+  if (operation === 'team_authorize') return (await teamApprovalSubject(root)).proposal_id;
   if (operation === 'promote') return args.proposal_id ?? null;
   if (operation === 'release') return (await readHold(root).catch(() => null))?.item_id ?? null;
   if (operation === 'authorize') return args.item_id ?? await currentOrFirstBacklogItem(loop);
@@ -75,6 +78,21 @@ const line = (label, value) => ({ label, value: String(Array.isArray(value) ? va
 // of it, and so that settlement can prove nothing moved in between.
 async function freezeDecision(root, operation, itemId, args) {
   const loop = path.join(root, '.loop');
+  if (operation === 'team_authorize') {
+    const subject = await teamApprovalSubject(root);
+    return { decision: { kind: 'team_authorize', subject }, summary: [
+      line('Operation', 'Authorize this exact agent team; start nothing'),
+      line('Team', subject.config.team_id), line('Team digest', subject.team_digest),
+      line('Mode and limits', `${subject.config.mode}, ${subject.config.max_active_packages} packages, ${subject.config.max_active_agents} agent sessions`),
+      line('Execution policy', subject.config.execution_policy),
+      ...subject.config.members.flatMap(member => [line(`Agent ${member.id}`, `${member.role}: ${member.provider}, ${member.execution_kind}, model ${member.requested_model}`),
+        line(`${member.id} allowed resolved models`, member.allowed_resolved_models), line(`${member.id} reads`, member.data_scope.read_paths),
+        line(`${member.id} writes`, member.data_scope.write_paths), line(`${member.id} tools`, member.tool_scope),
+        line(`${member.id} credential reference`, member.credential_env ?? 'No API credential'),
+        line(`${member.id} endpoint`, member.endpoint ?? 'Provider default'), line(`${member.id} limits`, member.budget ? JSON.stringify(member.budget) : 'Host limits: not enforced by this API runtime')]),
+      line('Boundary', 'Each package still needs its own approved setup and scoped, unexpired work authorization. No fallback, acceptance or integration is granted.'),
+    ] };
+  }
   if (operation === 'authorize') {
     if (!itemId) throw new ControlError('MISSING_INPUT', 'item_id is required when no current work item exists', { missing_inputs: ['item_id'] });
     if (!await exists(workItemFile(loop, itemId))) throw new ControlError('WORK_ITEM_NOT_FOUND', `no work item file exists for ${itemId}`);
@@ -179,6 +197,10 @@ export async function humanDecision(root, operation, args, channel) {
   // a repeated call reports the finished decision instead of asking again.
   await settleHumanDecisions(root, policy).catch(() => []);
   if (channel === 'interactive-tty') {
+    if (operation === 'team_authorize') {
+      if (args.confirm !== 'AUTHORIZE') throw new ControlError('CONFIRMATION_REQUIRED', 'Type AUTHORIZE at your terminal.');
+      return authorizeTeamFrozen(root, await teamApprovalSubject(root), channel);
+    }
     if (operation === 'accept') return accept(root, args, channel);
     if (operation === 'authorize') return authorize(root, args, channel);
     if (operation === 'release') return releaseHold(root, args, channel);

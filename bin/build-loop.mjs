@@ -10,11 +10,12 @@ import { resolveRoot } from '../control/common.mjs';
 import { verifyPlanForApproval } from '../control/setup.mjs';
 import { rotateControlPageToken, serveControlPage, stopControlPage } from '../control/control-page.mjs';
 import { REVIEW_NOT_ISOLATED, recordedReview } from '../control/chat.mjs';
+import { teamApprovalSubject } from '../control/team-approval.mjs';
 
 // Human-only decisions. Each needs its own literal word, typed at an
 // interactive terminal. An explicit input file is not a person: it returns a
 // pending request and a local confirmation link instead of completing.
-const confirmations = { accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE' };
+const confirmations = { accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE', team_authorize: 'AUTHORIZE' };
 
 function usage(message = '') {
   if (message) process.stderr.write(`${message}\n`);
@@ -83,6 +84,10 @@ else if (operation === 'approve') {
     result = await dispatch(root, operation, input, { channel: 'cli-input' });
   } else {
     process.stdout.write(`Project root: ${ttyText(root)}\nOperation: ${ttyText(operation)}\nThis is a human decision. It is recorded with the local time and the channel you used.\n`);
+    if (operation === 'team_authorize') {
+      const subject = await teamApprovalSubject(await resolveRoot(root));
+      process.stdout.write(`Exact team proposal:\n${ttyText(JSON.stringify(subject, null, 2))}\n`);
+    }
     if (operation === 'accept') {
       // Said before the word is asked for: a review by the same chat is not independent.
       const resolved = await resolveRoot(root).catch(() => null);

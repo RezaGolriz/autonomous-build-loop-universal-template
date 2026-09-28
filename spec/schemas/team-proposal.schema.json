@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/team-proposal.schema.json",
+  "title": "Team proposal record v1",
+  "description": "Written once to .loop/control/team.json by team_configure and never edited afterwards. team_digest is the digest of the normalized config and proposal_id is derived from it, so a later human approval (.loop/control/team.approval.json, a host-signed receipt whose approval_id is proposal_id and whose setup_digest is team_digest) binds exactly this team and nothing else. A changed team is a new proposal that needs a new approval. There is no authorization flag in this record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "proposal_id", "team_digest", "status", "created_at", "config", "host_signature"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "team-proposal"},
+    "proposal_id": {"type": "string", "pattern": "^team-[a-f0-9]{32}$"},
+    "team_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"const": "PAUSED", "description": "Always PAUSED on disk. Approval is a separate signed receipt, never a field here."},
+    "created_at": {"type": "string"},
+    "config": {"$ref": "team.schema.json"},
+    "host_signature": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

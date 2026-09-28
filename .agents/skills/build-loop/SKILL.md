@@ -217,3 +217,36 @@ The control page, step by step:
    link is also theirs, at the terminal (build-loop serve --stop, --rotate).
 5. With confirmation_page set (or control_page_autostart true) the page starts
    itself on every tick, decision, dashboard call and chat connection; no service is needed.
+
+
+## Teams and isolated packages
+
+Read docs/TEAMS.md for team requests. Ask whether packages should run
+sequentially (default) or in parallel, and which exact models, providers,
+roles, data scopes and time limits the person permits. team_configure writes
+a paused proposal; team_authorize returns a human confirmation link. Never
+open or submit that link yourself.
+
+Register separate roots with package_add. prepare=true creates an empty
+folder, not a repository copy. Address registered children by package_id
+through package_control. Each keeps its own setup approval, activation and
+READY authorization. API children configure and approve the same team locally;
+team_verify is an explicit provider request, not a free status check. Keys
+belong in local sensitive settings or named environment variables, never chat.
+
+supervisor_start schedules already-approved API/CLI children. Keep its job ID
+and read supervisor_status after reconnect. Recovery preserves the original
+child bindings, budgets and node cap. A fresh request ID cannot reset them.
+Stops finish at bounded node boundaries. Uncertain dead child ownership blocks;
+never delete locks or quarantine records. Automatic technical retries are not
+implemented.
+
+Automatic native-only supervision refuses to run until a verified host
+adapter exists. Explicit chat_next/chat_submit remains available, also through
+package_control, with a separately chosen independent reviewer. MCP cannot
+create a native Desktop subagent panel. Do not silently substitute models or
+confuse a CLI subscription with API access.
+
+Team progress counts evidence-backed workflow gates; missing coverage is
+partial. Acceptance, integration and unknown model evidence remain separate.
+Use the control page for live teams; the static shell renderer is unchanged.

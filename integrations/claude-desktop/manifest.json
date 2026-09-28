@@ -2,21 +2,60 @@
   "manifest_version": "0.3",
   "name": "universal-build-loop",
   "display_name": "Build Loop",
-  "version": "0.6.3",
+  "version": "0.8.0",
   "description": "Set up and control an evidence-backed local development loop from a conversation.",
-  "long_description": "Runs local project checks and separately installed AI worker CLIs. Requires Bash, jq, Git, and Perl. Project selection fixes the control root; it is not an operating-system sandbox. Approved commands run with your account privileges and workers may send project data to their model provider.",
-  "author": { "name": "Build Loop contributors" },
+  "long_description": "Controls approved local development work through chat. Supports existing CLI workers and separately configured API agents. Requires Bash, jq, Git and Perl for the workflow engine. Select one explicit project folder. Optional API keys are separate from a Claude Desktop subscription; never paste them into chat or project files. MCP does not create a native Desktop subagent panel.",
+  "author": {
+    "name": "Build Loop contributors"
+  },
   "tools_generated": true,
   "server": {
     "type": "node",
     "entry_point": "bin/build-loop-mcp.mjs",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/bin/build-loop-mcp.mjs", "--root", "${user_config.project_root}"]
+      "args": [
+        "${__dirname}/bin/build-loop-mcp.mjs",
+        "--root",
+        "${user_config.project_root}"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "${user_config.openai_api_key}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}"
+      }
     }
   },
   "user_config": {
-    "project_root": { "type": "directory", "title": "Project folder", "description": "Choose the project where approved commands will run. Use an empty folder for the demonstration, not your home folder or filesystem root.", "required": true }
+    "project_root": {
+      "type": "directory",
+      "title": "Project folder",
+      "description": "Choose the project where approved commands will run. Use an empty folder for the demonstration, not your home folder or filesystem root.",
+      "required": true
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API key (optional)",
+      "description": "Only for a selected OpenAI API worker. Leave blank for CLI or chat workflows. API usage is billed separately.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key (optional)",
+      "description": "Only for a selected Anthropic API worker. Leave blank for CLI or chat workflows. API usage is billed separately.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    }
   },
-  "compatibility": { "platforms": ["darwin", "linux"], "runtimes": { "node": ">=22" } }
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=22"
+    }
+  }
 }

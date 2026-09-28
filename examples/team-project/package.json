@@ -1,0 +1,7 @@
+{
+  "name": "build-loop-notes-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.mjs" }
+}

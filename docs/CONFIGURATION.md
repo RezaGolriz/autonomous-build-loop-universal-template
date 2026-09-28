@@ -445,3 +445,61 @@ environment.allow_names contains names only and must include PATH. A name allows
 an established machine value to pass to a verification command; it does not
 store the value. Keep tokens, passwords, cookies, and keys in the target or
 provider's established secret mechanism.
+
+
+## Team settings
+
+For several isolated packages, first prepare a signed team through
+`team_configure`. The input is `{"config": { ... }}`; do not edit the resulting
+`.loop/control/team.json` by hand. Defaults are one active package and two
+agent slots. Parallelism must be explicitly selected.
+
+Each member has an ID, role, provider, execution kind, requested model,
+explicit read/write paths and file-tool permissions. API members also have
+turn, reported-token-usage and time stop thresholds, and a **credential
+variable name**. The value never belongs in this JSON. Only builders may write;
+reviewers are read-only. Exact resolved model names can be allowed explicitly;
+an unexpected or missing reported model blocks without a fallback.
+
+Use `configure` with `host: "api"` and `review_host: "api"` for a fully managed
+API package. A hybrid package can keep a permitted CLI reviewer. The adapter's
+`environment.allow_names` must include the credential variable names chosen
+for those API workers, alongside PATH. A local provider currently needs an
+OpenAI Responses-compatible endpoint; Chat Completions alone is not enough.
+
+Package budgets contain `soft_seconds`, `reserve_seconds` and
+`hard_ceiling_seconds`; soft plus reserve cannot exceed the ceiling. Declare
+shared paths, named resources, dependencies and the conflict policy. Dependencies
+currently wait: automatic integration receipts and dependent launch are not
+implemented. Register the whole package set before the first supervisor job;
+it is frozen afterwards. Automatic technical retry is not enabled; manual
+retry after inspection retains the configured retry ceiling and consumed time.
+
+Persistent scheduler rollback anchors live beside the local trust key,
+outside the project. Restoring an older signed job file cannot reduce consumed
+budgets. A missing or older signed workspace copy is restored from the latest
+private record. An invalid signature or missing private anchor blocks recovery.
+Signed deletion records keep cancelled requests and removed leases from being
+reintroduced by restoring old files. This protects the
+workflow's recorded decisions; it is not an operating-system sandbox against
+other programs running as your account.
+
+Short scheduler locks retain retirement records, including after normal
+release. This prevents a delayed recovery process from taking a later owner's
+lock. These small records can accumulate during long runs. Do not remove them
+while any supervisor, recovery call or status client is active. Child engine
+locks use their existing rules and are not removed by scheduler recovery.
+
+After updating the installed distribution, existing activated projects need
+the ordinary `rebind` proposal and human approval. Do not rewrite activation
+receipts or bypass a distribution mismatch.
+
+User examples and recovery flow: [Teams](TEAMS.md). Strict roster fields:
+[team schema](../spec/schemas/team.schema.json).
+
+The file scopes govern the member's file tools. A node also receives its work
+item; a reviewer receives the change set and captured check evidence in the
+engine's brief. These parts of the brief are not filtered by file-tool glob
+patterns. Use a clean, isolated workspace containing the approved work. Known
+credentials named in the approved roster are redacted from prompts, tool
+writes and results. File scopes are not a general content-filtering service.

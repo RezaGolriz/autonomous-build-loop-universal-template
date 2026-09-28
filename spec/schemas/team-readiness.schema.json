@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/team-readiness.schema.json",
+  "title": "Team member readiness record v1",
+  "description": "Written by the managed API runtime to .loop/scheduler/team/readiness/<member_id>.json after a real provider response, signed with the local host key and bound to one team digest. team_status reports verified only from such a record, expired once expires_at has passed, and configured_unverified when there is none. Native and CLI members never get one: their support is reported as explicitly unverified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "member_id", "team_digest", "state", "source", "checked_at", "expires_at", "resolved_model", "detail", "host_signature"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "member_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+    "team_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "state": {"enum": ["verified", "failed"]},
+    "source": {"enum": ["provider-response", "provider-error"]},
+    "checked_at": {"type": "string"},
+    "expires_at": {"type": "string"},
+    "resolved_model": {"type": ["string", "null"]},
+    "detail": {"type": "string", "maxLength": 500},
+    "host_signature": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

@@ -28,7 +28,15 @@ node --version && npm --version && zip -v | head -1
 bash --version | head -1 && jq --version && git --version && perl --version | head -2
 ```
 
-**Workers.** The loop drives the Codex CLI and/or the Claude Code CLI as workers. Install and authenticate them **separately**, following their own documentation. Logging into Claude Desktop does **not** authenticate a worker CLI. If no worker CLI is installed and logged in, `doctor` will fail.
+**Choose a worker type.** An existing CLI worker needs a separate CLI install
+and login. A managed API worker needs your own API key and an explicitly chosen
+model; it starts no agent CLI. A mock dry run needs neither. Explicit chat
+steps need a host that can delegate and a separately chosen reviewer. A Desktop
+subscription does not supply API credentials or authenticate a CLI worker.
+
+The workflow engine still needs the Unix tools above for every worker type.
+Automatic native-only team supervision is not verified and refuses to start.
+See [Teams](TEAMS.md) before choosing that execution policy.
 
 ---
 
@@ -93,7 +101,8 @@ In Claude Desktop:
 4. Choose **Install Extension…**.
 5. Select `/absolute/package-root/dist/build-loop.mcpb`.
 6. In the extension's configuration, set **`project_root`** to `/absolute/target` — an absolute path to an existing directory.
-7. Restart Claude Desktop if the extension does not appear as connected.
+7. For API agents, enter your keys in the optional sensitive **OpenAI API key** or **Anthropic API key** fields. Leave unused fields blank. Do not paste keys into chat or commit them. The team names `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; the approved adapter must explicitly allow those names.
+8. Restart Claude Desktop if the extension does not appear as connected.
 
 These GUI steps follow the official Claude documentation linked above. They are documented, not independently validated in-product here; if the Desktop UI labels differ in your version, the official article is authoritative.
 

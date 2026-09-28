@@ -1,12 +1,12 @@
 {
   "name": "universal-build-loop",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "An evidence-backed development loop with shared shell and conversational controls.",
   "type": "module",
   "engines": { "node": ">=22" },
   "license": "UNLICENSED",
   "bin": { "build-loop": "bin/build-loop.mjs", "build-loop-mcp": "bin/build-loop-mcp.mjs" },
-  "files": ["bin", "control", "mcp", "engine", "bootstrap", "core", "spec", "hosts", "profiles", "template", "examples", "docs", "tests/fixtures", "VERSION", "README.md", "LICENSE", "SECURITY.md"],
+  "files": ["bin", "control", "runtimes", "mcp", "engine", "bootstrap", "core", "spec", "hosts", "profiles", "template", "examples", "docs", "tests/fixtures", "VERSION", "README.md", "LICENSE", "SECURITY.md"],
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:all": "node tools/test.mjs",

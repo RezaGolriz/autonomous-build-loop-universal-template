@@ -1,5 +1,13 @@
 # Control page and dashboard
 
+To see the team view before setting up a project, open
+[the interactive HTML reading example](design/team-dashboard.html) in your
+browser. It uses the same component as the dashboard, with clearly marked
+example data. You can try its filters and setup request form without starting
+an agent. A screenshot is included in [the README](../README.md).
+If you are reading this on GitHub, download the HTML file first, then open the
+saved file in your browser. GitHub's file view displays its source code.
+
 ## The control page
 
 The control page is the easiest way to watch a project and to make the human
@@ -322,3 +330,35 @@ The page is a summary. The truth lives next to it:
 Every record carries the Git revision it was made at and a checksum of the
 logs it refers to. If someone edits a log afterwards, the referee rejects the
 record.
+
+
+## Several packages on one page
+
+When a team is configured, the chat/MCP control page also shows **Work packages**,
+**Agent team**, and **Set up your team** tabs. The original one-project view
+remains below them. The original static shell renderer is unchanged; use the
+control page for the team view.
+
+![Example team dashboard reading guide](assets/team-dashboard.svg)
+
+This illustration is not a live screenshot. The running team page currently
+measures **passed workflow gates**, with evidence IDs attached to those gates.
+It does not infer individual acceptance-criterion completion from agent prose.
+
+Example: Guide A has 4/6 passed gates and Guide B has 2/6. Overall progress is
+6/12, or 50%. Filter the list to Guide A and the overall value stays 50%:
+it still covers the entire team. A package without state has no percentage;
+the total is labelled partial and coverage says how many packages were measured.
+A failed gate stops contributing as passed when its status changes.
+
+Select a package to see its workspace, current phase, checkpoint, budget,
+next action and evidence IDs. Allowed team members are profiles, not proof
+that every member is running. An unknown reported model is labelled unavailable.
+Human acceptance and integration are separate; currently those team flags stay
+unverified rather than guessing from a handover or a Git branch.
+
+The setup tab **writes a chat request only**. It does not save configuration,
+authorize work or start a job. Paste the request into your agent, choose the
+exact participants and review the resulting proposals.
+
+Recovery details and limitations: [Teams](TEAMS.md).

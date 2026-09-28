@@ -8,7 +8,7 @@ import { operations } from '../control/index.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
 const targets = [join(dist, 'desktop'), join(dist, 'codex', 'build-loop')];
-const runtime = ['bin', 'control', 'mcp', 'engine', 'bootstrap', 'core', 'spec', 'hosts', 'profiles', 'template', 'examples', 'docs', 'tests/fixtures', 'VERSION', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md'];
+const runtime = ['bin', 'control', 'runtimes', 'mcp', 'engine', 'bootstrap', 'core', 'spec', 'hosts', 'profiles', 'template', 'examples', 'docs', 'tests/fixtures', 'VERSION', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md'];
 function copy(relative, destination) {
   const source = join(root, relative);
   if (!existsSync(source)) throw new Error(`Missing package input: ${relative}`);

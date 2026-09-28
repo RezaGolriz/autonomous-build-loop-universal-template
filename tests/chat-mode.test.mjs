@@ -228,7 +228,7 @@ test('with host chat the reviewer has to be chosen; nothing defaults to the same
   try {
     const refused = await dispatch(root, 'chat_next', {});
     assert.equal(refused.error.code, 'CHAT_REVIEW_HOST_REQUIRED', JSON.stringify(refused));
-    assert.deepEqual(refused.error.details?.options ?? refused.error.options, ['chat', 'claude', 'codex']);
+    assert.deepEqual(refused.error.details?.options ?? refused.error.options, ['chat', 'claude', 'codex', 'api']);
     assert.equal((await dispatch(root, 'status', {})).execution.review_host_chosen, false);
     const chosen = await dispatch(root, 'configure', { host: 'chat', review_host: 'chat' });
     assert.equal(chosen.review_host_chosen, true); assert.equal(chosen.review_isolated, false); assert.match(chosen.warning, /not independently isolated/);

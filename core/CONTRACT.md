@@ -64,3 +64,28 @@ snapshots, review challenges, verdict validation, and evidence-backed
 validation of legal state transitions. The reference orchestrator sequences a
 single work item through this state machine with a fresh agent context per
 node; it never makes a gate decision itself.
+
+
+## Teams and isolated packages
+
+A team is a human-approved roster, not permission to execute every member.
+The shared control supervisor may schedule multiple **isolated roots**; it
+never creates concurrent writers inside one root. Each package keeps its own
+approved activation, READY scope, authorization expiry, six phases, independent
+review and evidence. Team approval replaces none of those decisions.
+
+Scheduler records are host-signed. A durable job binds the team, package set,
+child work items, activations and provider configurations. Reconnecting or
+resuming keeps the job identity and consumed limits. A reserve is allowed only
+inside the original hard ceiling and only after runner-owned checkpoint
+movement. A hold or lost authority prevents subsequent nodes. Stop requests
+finish at a bounded node boundary; they do not promise an immediate process
+kill. Failed checks, expired authority and uncertain child ownership require
+inspection, not an automatic retry or deletion of locks.
+
+Managed API agents use explicit approved models, separate contexts and bounded
+file tools. The workflow engine still owns verification. Readiness is a
+recorded provider response, never inferred from an installed plugin or a model
+name. An MCP connection is not evidence of native host delegation. Automatic
+native-only supervision remains blocked until a host adapter supplies verified
+delegation and review isolation.

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/autonomous-build-loop/team.schema.json",
+  "title": "Team configuration v1",
+  "description": "A proposed agent team: who builds, who reviews, where each member executes and under which model, tool, data and budget limits. team_configure only stores it as a paused, signed proposal; nothing runs from it until a person approves that exact digest. control/team.mjs validateTeam enforces the cross-field rules listed in each description, which plain JSON Schema cannot express. There is deliberately no money budget: spend is bounded only by the turn, token and time budgets the runtime can actually count.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "team_id", "mode", "execution_policy", "members"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "team_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+    "mode": {"enum": ["sequential", "parallel"], "description": "sequential requires max_active_packages 1."},
+    "max_active_packages": {"type": "integer", "minimum": 1, "maximum": 8, "default": 1},
+    "max_active_agents": {"type": "integer", "minimum": 1, "maximum": 16, "default": 2},
+    "execution_policy": {"enum": ["native_only", "api_only", "hybrid"], "description": "native_only: every member is native. api_only: every member is managed_api, and no agent CLI is ever started. hybrid: any mix."},
+    "members": {
+      "type": "array", "minItems": 2, "maxItems": 16,
+      "description": "Member ids are unique. At least one builder and one reviewer. Only a builder may hold write_file or write_paths.",
+      "items": {"$ref": "#/$defs/member"}
+    }
+  },
+  "$defs": {
+    "glob": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000-\\u001f|`,;]+$"},
+    "modelName": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\[\\]-]{0,79}$"},
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "provider", "execution_kind", "requested_model", "tool_scope", "data_scope"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+        "role": {"enum": ["coordinator", "builder", "reviewer", "analyst"]},
+        "provider": {"enum": ["openai", "anthropic", "local", "host", "mock"], "description": "native requires host; cli requires openai or anthropic; managed_api requires openai, anthropic, local or mock."},
+        "execution_kind": {"enum": ["native", "managed_api", "cli"]},
+        "requested_model": {"$ref": "#/$defs/modelName"},
+        "allowed_resolved_models": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/modelName"}, "default": [], "description": "Exact model names the provider may report back instead of requested_model (for example a dated snapshot of an alias). Any other reported model, or none, stops the node: there is no silent fallback."},
+        "tool_scope": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["list_files", "read_file", "write_file"]}},
+        "data_scope": {
+          "type": "object", "additionalProperties": false, "required": ["read_paths", "write_paths"],
+          "properties": {
+            "read_paths": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/glob"}},
+            "write_paths": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/glob"}, "description": "Must be empty unless tool_scope holds write_file, which only a builder may."}
+          }
+        },
+        "credential_env": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{1,63}$", "default": null, "description": "The NAME of the environment variable that holds the API key. Never the key itself. Required for managed_api with openai or anthropic, forbidden for native and cli."},
+        "endpoint": {"type": ["string", "null"], "maxLength": 2048, "default": null, "description": "managed_api only. https URL, or http on a loopback address. Required for local and mock; openai and anthropic default to their public API base."},
+        "budget": {
+          "type": ["object", "null"], "additionalProperties": false, "default": null,
+          "required": ["max_turns", "max_total_tokens", "max_seconds"],
+          "description": "Required for managed_api, forbidden elsewhere (the runtime could not count it).",
+          "properties": {
+            "max_turns": {"type": "integer", "minimum": 1, "maximum": 64},
+            "max_total_tokens": {"type": "integer", "minimum": 1000, "maximum": 4000000},
+            "max_seconds": {"type": "integer", "minimum": 10, "maximum": 86400}
+          }
+        }
+      }
+    }
+  }
+}

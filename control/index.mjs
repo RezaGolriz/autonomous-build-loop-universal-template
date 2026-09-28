@@ -13,6 +13,10 @@ import { discard, inboxList, scout } from './scout.mjs';
 import { humanDecision } from './human-ops.mjs';
 import { HELD_OPERATIONS, assertNotHeld, placeHold } from './hold.mjs';
 import { operations, transportChannels, validateOperation } from './schemas.mjs';
+import { readStore } from './package-store.mjs';
+import { teamConfigure, teamStatus } from './team.mjs';
+import { verifyMemberReadiness } from '../runtimes/api-runtime.mjs';
+import { packageAdd, packageList, supervisorStart, supervisorStatus, supervisorPause, supervisorCancel, supervisorResume, supervisorRecover } from './supervisor.mjs';
 
 export { operations };
 
@@ -61,6 +65,31 @@ async function operate(root, operation, args, context) {
     if (HELD_OPERATIONS.includes(operation) && operation !== 'tick') await assertNotHeld(root, humanChannel(context), operation);
     if (AUTOSTART_BEFORE.includes(operation)) await autostartControlPage(root, { reason: operation });
     switch (operation) {
+      case 'team_configure': return await teamConfigure(root, args);
+      case 'team_status': return await teamStatus(root);
+      case 'team_authorize': return await humanDecision(root, operation, args, humanChannel(context));
+      case 'team_verify': return await verifyMemberReadiness(root, args.member_id);
+      case 'package_add': return await packageAdd(root, args);
+      case 'package_list': return await packageList(root);
+      case 'package_control': {
+        const allowed = ['inspect', 'doctor', 'demo', 'configure', 'prepare', 'rebind', 'request_approval', 'activate', 'authorize', 'deauthorize', 'status', 'check', 'chat_next', 'chat_submit', 'answer', 'pause', 'cancel', 'handover', 'accept', 'team_configure', 'team_status', 'team_authorize', 'team_verify'];
+        if (!allowed.includes(args.operation)) throw new ControlError('PACKAGE_OPERATION_NOT_ALLOWED', 'Use a registered package setup, status or explicit chat operation.');
+        const store = await readStore(root);
+        const pkg = store.packages.find(x => x.package_id === args.package_id);
+        if (!pkg) throw new ControlError('PACKAGE_NOT_FOUND', 'Register this package before addressing it.');
+        if (['activate', 'chat_next', 'chat_submit'].includes(args.operation)) await assertNotHeld(root, 'mcp-user', 'package_control');
+        if (args.operation === 'request_approval') {
+          if (Object.keys(args.input ?? {}).some(x => !['expires_minutes'].includes(x))) throw new ControlError('UNKNOWN_FIELD', 'Invalid package approval input');
+          return await requestApproval(pkg.root, args.input ?? {});
+        }
+        return { package_id: pkg.package_id, ...(await dispatch(pkg.root, args.operation, args.input ?? {}, context)) };
+      }
+      case 'supervisor_start': return await supervisorStart(root, args, humanChannel(context));
+      case 'supervisor_status': return await supervisorStatus(root, args);
+      case 'supervisor_pause': return await supervisorPause(root, args);
+      case 'supervisor_cancel': return await supervisorCancel(root, args);
+      case 'supervisor_resume': return await supervisorResume(root, args, humanChannel(context));
+      case 'supervisor_recover': return await supervisorRecover(root, args);
       case 'options': return loopOptions();
       case 'dashboard': return await dashboard(root);
       case 'serve': return await serveControlPage(root, { reason: 'serve' });

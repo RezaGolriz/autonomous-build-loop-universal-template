@@ -33,7 +33,7 @@ const ACTIVE = ['QUEUED', 'RUNNING', 'STOPPING'];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const REVIEW_NOT_ISOLATED = 'Review was not independently isolated (same chat)';
-export const REVIEW_HOST_OPTIONS = Object.freeze(['chat', 'claude', 'codex']);
+export const REVIEW_HOST_OPTIONS = Object.freeze(['chat', 'claude', 'codex', 'api']);
 
 // How the current run executes, for status, check and both dashboards.
 export function executionSummary(config) {
@@ -47,9 +47,10 @@ export function executionSummary(config) {
   const chosen = !(chat && review === 'chat' && config.review_host_chosen !== true);
   let line;
   if (chat) line = isolated ? `Execution: chat-hosted · review: ${review}` : 'Execution: chat-hosted (review not independently isolated)';
+  else if (config.host === 'api') line = `Execution: managed API agent · review: ${review}`;
   else line = `Execution: separate CLI process (${config.host}) · review: ${review}${isolated ? '' : ' (chat-hosted, not independently isolated)'}`;
   return {
-    host: config.host, review_host: review, mode: chat ? 'chat-hosted' : 'cli-provider', review_isolated: isolated, review_host_chosen: chosen, line,
+    host: config.host, review_host: review, mode: chat ? 'chat-hosted' : config.host === 'api' ? 'managed-api' : 'cli-provider', review_isolated: isolated, review_host_chosen: chosen, line,
     warning: isolated ? null : `${REVIEW_NOT_ISOLATED}: the REVIEW node is done by the same chat that built the change, so a PASS is not an independent check. Choose review_host claude or codex for an isolated review.`,
   };
 }

@@ -481,3 +481,14 @@ is just automation.
 
 The pages behind that, with one line each on what they are for, are in
 [SOURCES.md](SOURCES.md).
+
+
+## Sequential or parallel packages
+
+These are scheduling choices, separate from one-step versus bounded execution.
+Sequential is the default. Parallel requires an approved team and isolated,
+individually authorized package workspaces. Each keeps all six phases.
+Shared resources serialize or block conflicting work. Existing shell commands
+continue to run a single root; the shared CLI also exposes `supervisor_start`
+for registered packages. See [Teams](TEAMS.md) and
+[the two-package example](../examples/team-demo/README.md).

@@ -311,7 +311,7 @@ export function publicError(error) {
   return { ok: false, error: { code: 'INTERNAL_ERROR', message: error?.message || String(error) } };
 }
 
-export function effectivePath() {
+export function effectivePath(environmentPath = process.env.PATH) {
   const home = os.homedir();
-  return [...new Set([...(process.env.PATH || '').split(path.delimiter), path.join(home, '.local', 'bin'), path.join(home, '.cargo', 'bin'), path.join(home, '.volta', 'bin'), path.join(home, '.npm-global', 'bin'), '/Applications/Codex.app/Contents/Resources', '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].filter(value => path.isAbsolute(value)))].join(path.delimiter);
+  return [...new Set([path.dirname(process.execPath), ...(environmentPath || '').split(path.delimiter), path.join(home, '.local', 'bin'), path.join(home, '.cargo', 'bin'), path.join(home, '.volta', 'bin'), path.join(home, '.npm-global', 'bin'), '/Applications/Codex.app/Contents/Resources', '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].filter(value => path.isAbsolute(value)))].join(path.delimiter);
 }

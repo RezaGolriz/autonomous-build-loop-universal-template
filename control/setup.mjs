@@ -126,7 +126,7 @@ export async function distributionHashes() {
       else if (entry.isFile() && /\.(?:mjs|js|sh|json)$/.test(entry.name)) names.push(rel);
     }
   }
-  for (const directory of ['control', 'bin', 'engine', 'hosts']) await collect(directory);
+  for (const directory of ['control', 'bin', 'engine', 'hosts', 'runtimes']) await collect(directory);
   names.sort();
   const hashes = {};
   for (const name of names) hashes[name] = sha256(await fs.readFile(path.join(bundleRoot, name)));

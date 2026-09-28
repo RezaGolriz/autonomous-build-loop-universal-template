@@ -15,18 +15,35 @@ Runs on macOS and Linux. Native Windows is not supported. WSL has not been valid
 
 For first use, choose a separate target folder. Below, `/absolute/path/to/package-root` means the full path to this checkout on your machine. Replace it with your real path — don't guess.
 
-## Two pieces — also keep them straight
+## Choose how the agents work
 
-- **The plugin / extension** is the *installation*. It gives your app the Build Loop tools.
-- **The worker CLI** is *separate*. Build Loop drives an already‑installed, already‑signed‑in **Codex CLI** or **Claude Code CLI** to do the actual editing. Installing the plugin does not install or log in the worker.
+The **plugin or extension** connects your chat to Build Loop. The **worker**
+performs a task. Choose the worker separately during setup:
+
+| Choice | What you need | Where you see the work |
+|---|---|---|
+| Existing CLI worker | An installed, signed-in Codex CLI or Claude Code CLI | Chat status and the dashboard |
+| Managed API agent | Your own API access and an explicitly selected model | Separate agent sessions in the dashboard; no agent CLI is started |
+| Chat-hosted work | A host able to create a fresh helper for each step, plus an independent reviewer | Your host's agent view, where supported, and the dashboard |
+| Test worker | No AI account; the bundled mock provider | A dry run that tests the workflow, not AI quality |
+
+**Claude Desktop chat over MCP does not promise a native subagent panel.**
+For automatic teams without agent CLI processes, choose managed API agents.
+Native host delegation needs separate host verification; automatic native-only
+team supervision is currently blocked. Explicit one-package chat steps remain
+available. See [Teams](docs/TEAMS.md) for the supported combinations.
 
 ## Prerequisites
 
-- **Bash 3.2+, `jq`, `git`, `perl`** available in your shell.
-- **Node.js 22+, `npm`, and `zip`** — needed to *build* the package. The Codex plugin and direct MCP also require Node.js 22+ at runtime.
-- A **worker CLI you have already authenticated**: Codex CLI or Claude Code CLI. Files existing on disk is not proof; you are set only if you have actually run the CLI and signed in.
+- macOS or Linux with **Bash 3.2+, `jq`, Git and Perl**. These run the workflow
+  and approved project checks, even when the agents use an API.
+- **Node.js 22+** for Codex, direct MCP and the CLI. **npm and zip** are needed
+  to build the installation files once. The Desktop extension supplies Node.
+- Credentials for the worker type you choose. A CLI login and an API key are
+  different things. API billing is separate from an app subscription.
 
-Claude Desktop ships its own Node runtime for the extension, but the Unix tools and the authenticated worker above are still required.
+You can ask Codex to check and build the package for you. Installing the
+extension never authorizes changes to your project.
 
 ---
 
@@ -85,7 +102,8 @@ npm run bundle
 1. Open **Claude Desktop → Settings → Extensions → Advanced settings → Install Extension…**
 2. Choose the `dist/build-loop.mcpb` file from Step 1.
 3. When asked for **`project_root`**, enter the **absolute path to your target‑project folder**. It must already exist.
-4. Enable the extension.
+4. If you choose API agents, enter only the keys you need in the optional sensitive API-key fields. Leave these blank for CLI or chat workflows. Never paste keys into chat.
+5. Enable the extension.
 
 **Expected result:** Build Loop appears in the Extensions list as enabled, with your `project_root` shown.
 
@@ -96,7 +114,7 @@ npm run bundle
 
    > Use Build Loop to inspect my selected project, check its prerequisites, and show the available work kinds and run modes. Do not run project commands or initialize anything yet.
 
-**Expected result:** Claude calls a named Build Loop tool and reports real details of the project at your `project_root`, plus a clear list of anything missing (worker CLI not authenticated, `jq` absent, and so on). If the reply is generic advice with no tool call, check that `loop_inspect`, `loop_doctor`, and `loop_options` appear among the connected tools.
+**Expected result:** Claude calls a named Build Loop tool and reports real details of the project at your `project_root`, plus a clear list of anything missing (selected worker not ready, `jq` absent, and so on). If the reply is generic advice with no tool call, check that `loop_inspect`, `loop_doctor`, and `loop_options` appear among the connected tools.
 
 These menu steps follow [Claude’s official installation guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop). The in-app installation has not been tested end to end here.
 
@@ -109,7 +127,7 @@ These menu steps follow [Claude’s official installation guide](https://support
 1. **Prepare.** You describe the work and choose a builder and independent reviewer. The agent configures those providers and prepares the scope, verification commands, and limits. Build Loop returns a **paused candidate** for you to read. It does **not** return a dashboard link at this point.
 2. **Request approval.** The request‑approval step (`loop_request_approval`) returns a **confirmation URL**. **A human must open and submit it personally.** The agent cannot do this for you.
 3. **Activate.** Build Loop runs positive and negative probes against a **disposable copy** of your project, then inspects whether the job completed as expected.
-4. **Start.** You choose the **run mode**. A worker then edits the project, one step (a *node*) at a time: either a separate command‑line worker (the Codex or Claude CLI) or a fresh helper agent inside this chat.
+4. **Start.** You choose the **run mode**. A worker then edits the project, one step (a *node*) at a time: a selected CLI worker, a managed API agent, or an explicit chat-hosted helper where supported.
 5. **Control page.** `build-loop serve` (or `loop_serve` from chat) starts one long‑lived page and gives you a **single‑use link** to it: it opens the page once, within 10 minutes, and your browser then stays signed in for 12 hours. It shows the state, and its Decisions panel is where you type the word to accept, authorize, promote or release. Starting it decides nothing.
 
 ```mermaid
@@ -122,9 +140,11 @@ flowchart LR
     V --> R[Step or bounded<br/>run]
     R --> W{A worker edits<br/>the project}
     W -->|option 1| W1[Command-line worker<br/>Codex or Claude CLI]
-    W -->|option 2| W2[Fresh sub-agent<br/>in this chat]
+    W -->|option 2| W2[Chat-hosted helper<br/>where supported]
+    W -->|option 3| W3[Separate API agent<br/>approved file tools]
     W1 --> Q[Independent review<br/>and validation]
     W2 --> Q
+    W3 --> Q
     Q -->|Rework needed| R
     Q -->|Gates passed| O[Handover]
     M -. state .-> D[Control page<br/>stable link while<br/>the server runs]
@@ -248,6 +268,49 @@ costs nothing. Where these ideas come from:
 | Doing the node work inside the chat instead of a separate CLI | Implemented — `configure` with `host` `chat` and an explicit `review_host`, then `chat_next` and `chat_submit` (with `node_id` and `attempt_id`); the review is independent only when `review_host` is another tool |
 | Merge, push, deploy, release, device flashing, live migration | Not automated, by design — human actions |
 | Native Windows | Not supported; WSL has not been validated |
+
+## Work on several topics
+
+Start with one package at a time. Choose parallel work explicitly when the
+packages can be developed independently. Each package has its own workspace,
+review, validation and time allowance.
+
+> Set up two independent packages: update the getting-started guide and the
+> troubleshooting guide. Allow two packages at a time. Ask which builder and
+> reviewer may help. Show their exact models, file access and time limits.
+> Prepare the approval pages and wait for me to complete them.
+
+![The team workflow, from a request to separate package handovers](docs/assets/team-workflow.svg)
+
+The supervisor schedules **already approved** packages. Shared paths or named
+resources make conflicting packages wait. It records checkpoints and keeps
+consumed budgets when you reconnect. Only a pre-approved time reserve may be
+used; approval expiry and hard limits remain in force.
+
+![Illustrated guide to overall and package progress in the team dashboard](docs/assets/team-dashboard.svg)
+
+*Reading guide with example values, not a screenshot or a live result.*
+
+**Read the label next to the bar.** Current team status counts passed workflow
+gates backed by evidence. For example, package A has 4/6 gates and package B
+has 2/6: the total is **6/12 = 50%**. If another package has no state yet, the
+page labels that percentage **partial** and reports the missing coverage.
+A full bar means all counted gates passed. Human acceptance and integration
+remain separate; the page does not infer that code was merged.
+
+See [Teams: setup, limits and recovery](docs/TEAMS.md),
+[the team demonstration](examples/team-demo/README.md),
+[the Notes and CSV practice project](examples/team-project/README.md), and
+[the dashboard guide](docs/DASHBOARD.md).
+
+![Actual team dashboard component with clearly labelled example data](docs/assets/team-dashboard-example.png)
+
+*Screenshot of the interactive reading example. The models, sessions and
+evidence shown here are illustrative. Open [the HTML example](docs/design/team-dashboard.html)
+in your browser to try the package filters and setup request form.*
+
+On GitHub, download the HTML file first, then open the saved file in your
+browser. The GitHub file view itself shows source code.
 
 ## Use the control page
 
@@ -400,6 +463,9 @@ The original shell entry point remains fully supported alongside the plugin, inc
 
 ## More documentation
 
+- [docs/TEAMS.md](docs/TEAMS.md) — team setup, parallel work, API agents and recovery
+- [examples/team-demo/README.md](examples/team-demo/README.md) — the two-package example and what its tests prove
+- [examples/team-project/README.md](examples/team-project/README.md) — a small app with two independent improvements to try with your chosen agents
 - [docs/INSTALLATION.md](docs/INSTALLATION.md) — every install path, including raw MCP JSON
 - [docs/LOOP-MODES.md](docs/LOOP-MODES.md) — the four kinds of loop, run modes, work kinds, what is never automatic
 - [docs/DASHBOARD.md](docs/DASHBOARD.md) — the control page, phone access, and other ways to see the state

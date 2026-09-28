@@ -12,7 +12,7 @@ export function loopOptions() {
   return { ok: true, work_kinds: workKinds, run_modes: {
     step: { max_nodes: 1, description: 'Execute at most one node, then return control.' },
     bounded: { max_nodes: 12, description: 'Continue for at most 12 nodes, stopping earlier at gates, blockers or handover.' },
-  }, default_work_kind: 'feature', phases: ['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER'], independent_review_required: true };
+  }, team_modes: { sequential: { max_active_packages: 1, description: 'One isolated package at a time (default).' }, parallel: { max_active_packages: 2, description: 'Independent isolated packages, with explicit concurrency and resource limits.' } }, default_team_mode: 'sequential', default_work_kind: 'feature', phases: ['DEFINE', 'DESIGN', 'EXECUTE', 'REVIEW', 'VALIDATE', 'HANDOVER'], independent_review_required: true };
 }
 export function validateKind(kind) {
   if (kind !== undefined && !Object.hasOwn(workKinds, kind)) throw new ControlError('INVALID_INPUT', 'work_kind must be feature, defect, maintenance, documentation, research or migration');

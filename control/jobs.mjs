@@ -14,6 +14,7 @@ import { authorizationExpired, backlogSummary, inboxCount, readAuthorization } f
 import { progressSummaryFor } from './progress.mjs';
 import { assertNotHeld, holdSummary } from './hold.mjs';
 import { writeNextSteps } from './notes.mjs';
+import { loadTeam, teamStatus, verifyTeamBinding } from './team.mjs';
 import { MODEL_KEYS, MODEL_NAME_PATTERN, PROVIDER_TIMEOUT_KEYS } from './schemas.mjs';
 import { abandonWaitingNode, currentExecution, reviewIndependence } from './chat.mjs';
 
@@ -39,6 +40,12 @@ function builtInAuthCheck(host, cliPath, trustedBundledProvider) {
 
 async function authenticationState(root, host, installed, check, trusted) {
   if (host === 'mock' || host === 'chat') return true;
+  if (host === 'api') {
+    const team = await teamStatus(root);
+    const config = await readJson(path.join(root, '.loop', 'host.local.json'));
+    const roles = [ ...(config.host === 'api' ? ['builder'] : []), ...(config.review_host === 'api' ? ['reviewer'] : []) ];
+    return team.approval?.state === 'APPROVED' && roles.every(role => team.members?.find(m => m.role === role && m.execution_kind === 'managed_api')?.readiness.state === 'verified') ? true : 'unknown';
+  }
   if (!installed || !check || !trusted) return 'unknown';
   try { const result = await runBounded(check.argv, root, check.timeout_seconds, authEnvironment); return result.exit_code === check.expected_exit_code; }
   catch { return false; }
@@ -49,7 +56,7 @@ async function authenticationState(root, host, installed, check, trusted) {
 // generated wrapper instead.
 async function wrapProvider(control, role, host, providerPath, cliPath, enabled, models = null, timeouts = null) {
   const bin = enabled && cliPath; const hasModels = models && Object.keys(models).length > 0; const hasTimeouts = timeouts && Object.keys(timeouts).length > 0;
-  if (host === 'mock' || host === 'chat' || (!bin && !hasModels && !hasTimeouts)) return providerPath;
+  if (host === 'mock' || host === 'chat' || host === 'api' || (!bin && !hasModels && !hasTimeouts)) return providerPath;
   const wrapper = path.join(control, 'providers', `${role}-${host}.sh`); const prefix = host === 'claude' ? 'CLAUDE' : 'CODEX';
   const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
   const exports = [];
@@ -102,23 +109,25 @@ async function configureHostUnlocked(root, args, loop, control) {
     for (const [key, seconds] of Object.entries(args.timeouts)) if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86400) throw new ControlError('INVALID_INPUT', `timeouts.${key} must be a positive integer number of seconds (at most 86400)`);
   }
   const timeouts = args.timeouts && Object.keys(args.timeouts).length ? args.timeouts : null;
-  if (!['codex', 'claude', 'mock', 'chat'].includes(args.host)) throw new ControlError('INVALID_INPUT', 'host must be codex, claude, mock, or chat');
+  if (!['codex', 'claude', 'mock', 'chat', 'api'].includes(args.host)) throw new ControlError('INVALID_INPUT', 'host must be codex, claude, mock, chat, or api');
   if (args.provider_path && !path.isAbsolute(args.provider_path)) throw new ControlError('INVALID_INPUT', 'provider_path must be absolute');
   if (args.cli_path && !path.isAbsolute(args.cli_path)) throw new ControlError('INVALID_INPUT', 'cli_path must be absolute');
-  if (args.review_host && !['codex', 'claude', 'mock', 'chat'].includes(args.review_host)) throw new ControlError('INVALID_INPUT', 'review_host is invalid');
+  if (args.review_host && !['codex', 'claude', 'mock', 'chat', 'api'].includes(args.review_host)) throw new ControlError('INVALID_INPUT', 'review_host is invalid');
   if (args.review_provider_path && !path.isAbsolute(args.review_provider_path)) throw new ControlError('INVALID_INPUT', 'review_provider_path must be absolute');
   if (args.review_cli_path && !path.isAbsolute(args.review_cli_path)) throw new ControlError('INVALID_INPUT', 'review_cli_path must be absolute');
   const reviewHost = args.review_host || args.host;
   const bundledProviderPath = path.join(bundleRoot, 'hosts', args.host, 'provider.sh'); const trustedBundledProvider = !args.provider_path || args.provider_path === bundledProviderPath;
   const bundledReviewProviderPath = path.join(bundleRoot, 'hosts', reviewHost, 'provider.sh'); const trustedBundledReviewProvider = !args.review_provider_path || args.review_provider_path === bundledReviewProviderPath;
   const rawProviderPath = args.provider_path || bundledProviderPath; const rawReviewProviderPath = args.review_provider_path || bundledReviewProviderPath;
-  const cliPath = ['mock', 'chat'].includes(args.host) ? null : (args.cli_path || (trustedBundledProvider ? await commandPath(args.host) : null));
-  const reviewCliPath = ['mock', 'chat'].includes(reviewHost) ? null : (args.review_cli_path || (trustedBundledReviewProvider ? (reviewHost === args.host && cliPath ? cliPath : await commandPath(reviewHost)) : null));
+  const cliPath = ['mock', 'chat', 'api'].includes(args.host) ? null : (args.cli_path || (trustedBundledProvider ? await commandPath(args.host) : null));
+  const reviewCliPath = ['mock', 'chat', 'api'].includes(reviewHost) ? null : (args.review_cli_path || (trustedBundledReviewProvider ? (reviewHost === args.host && cliPath ? cliPath : await commandPath(reviewHost)) : null));
   const providerPath = await wrapProvider(control, 'primary', args.host, rawProviderPath, cliPath, Boolean(args.cli_path), models, timeouts);
   const reviewProviderPath = await wrapProvider(control, 'review', reviewHost, rawReviewProviderPath, reviewCliPath, Boolean(args.review_cli_path), models, timeouts);
   const authCheck = builtInAuthCheck(args.host, cliPath, trustedBundledProvider && !args.cli_path);
   const reviewAuthCheck = builtInAuthCheck(reviewHost, reviewCliPath, trustedBundledReviewProvider && !args.review_cli_path);
-  const config = { schema_version: 1, host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, review_host_chosen: Boolean(args.review_host), ...(models ? { models } : {}), ...(timeouts ? { timeouts } : {}), updated_at: now() };
+  const configuredTeam = args.host === 'api' || reviewHost === 'api' ? await loadTeam(root) : null;
+  if ((args.host === 'api' || reviewHost === 'api') && !configuredTeam) throw new ControlError('TEAM_NOT_CONFIGURED', 'Configure a team proposal before choosing the API provider.');
+  const config = { schema_version: 1, ...(configuredTeam ? { team_digest: configuredTeam.team_digest } : {}), host: args.host, provider_path: providerPath, cli_path: cliPath, review_host: reviewHost, review_provider_path: reviewProviderPath, review_cli_path: reviewCliPath, auth_check: authCheck, review_auth_check: reviewAuthCheck, review_host_chosen: Boolean(args.review_host), ...(models ? { models } : {}), ...(timeouts ? { timeouts } : {}), updated_at: now() };
   config.host_signature = await signHostConfiguration(root, config);
   await atomicJson(path.join(loop, 'host.local.json'), config);
   return { ok: true, configured: true, host: config.host, provider_path: config.provider_path, cli_path: config.cli_path, review_host: config.review_host, review_provider_path: config.review_provider_path, review_cli_path: config.review_cli_path, review_host_chosen: config.review_host_chosen, ...(config.host === 'chat' && !config.review_host_chosen ? { next: 'Choose who reviews before chat_next can start: configure again with review_host chat (this same chat, not independently isolated), claude or codex.' } : {}), ...(config.review_host === 'chat' ? { review_isolated: false, warning: 'Review was not independently isolated (same chat): the REVIEW node is done by the chat that built the change.' } : {}), auth_check_configured: Boolean(config.auth_check), review_auth_check_configured: Boolean(config.review_auth_check), models: config.models ?? null, timeouts: config.timeouts ?? null };
@@ -138,8 +147,8 @@ export async function doctor(root) {
       const config = await readJson(configFile, 'host.local.json');
       await verifyHostConfiguration(root, config);
       const primaryWrapperInstalled = await executable(config.provider_path); const reviewWrapperInstalled = await executable(config.review_provider_path);
-      const primaryCli = ['mock', 'chat'].includes(config.host) ? config.provider_path : (config.cli_path || config.host);
-      const reviewCli = ['mock', 'chat'].includes(config.review_host) ? config.review_provider_path : (config.review_cli_path || config.review_host);
+      const primaryCli = ['mock', 'chat', 'api'].includes(config.host) ? config.provider_path : (config.cli_path || config.host);
+      const reviewCli = ['mock', 'chat', 'api'].includes(config.review_host) ? config.review_provider_path : (config.review_cli_path || config.review_host);
       const primaryCliPath = await commandPath(primaryCli); const reviewCliPath = await commandPath(reviewCli);
       const primaryInstalled = primaryWrapperInstalled && Boolean(primaryCliPath); const reviewInstalled = reviewWrapperInstalled && Boolean(reviewCliPath);
       const safePrimaryCheck = builtInAuthCheck(config.host, primaryCliPath, config.provider_path === path.join(bundleRoot, 'hosts', config.host, 'provider.sh') && config.cli_path === primaryCliPath);
@@ -404,6 +413,17 @@ export function handoverNodePending(state) {
 }
 
 export async function launchJob(root, mode, args, channel = 'mcp-user') {
+  const receipt = { spawned: false };
+  try { return await launchJobTracked(root, mode, args, channel, receipt); }
+  catch (error) {
+    // Controller-owned fact, never provider prose or caller input. A caught
+    // refusal before a successful spawn started no child in THIS invocation.
+    // It says nothing about a prior invocation of the same request ID.
+    if (error && typeof error === 'object') error.child_spawned_in_this_call = receipt.spawned;
+    throw error;
+  }
+}
+async function launchJobTracked(root, mode, args, channel, receipt) {
   const { loop, control } = await assertControlPath(root);
   const human = channel === humanEntryChannel;
   // A project-wide hold stops every automated launch, whichever caller got
@@ -427,6 +447,7 @@ export async function launchJob(root, mode, args, channel = 'mcp-user') {
   if (mode === 'run' && !['PAUSED', 'RUNNING'].includes(state.run_status) && !handoverNodePending(state)) throw new ControlError('INVALID_STATE', 'run requires PAUSED or RUNNING state');
   if (state.round >= state.max_rounds) throw new ControlError('ROUND_CAP_REACHED', 'round cap is already reached');
   if (state.started_epoch > 0 && elapsedSeconds(state) > state.max_wall_seconds) throw new ControlError('WALL_CAP_REACHED', 'original wall-clock cap is already reached');
+  if (config.host === 'api' || config.review_host === 'api') { const team = await verifyTeamBinding(root); if (team.team_digest !== config.team_digest) throw new ControlError('TEAM_APPROVAL_STALE', 'Provider configuration is bound to a different team.'); }
   if (!await executable(config.provider_path) || !await executable(config.review_provider_path)) throw new ControlError('PROVIDER_NOT_INSTALLED', 'configured provider or review provider is not executable');
   const existing = await activeJob(root); if (existing && ['QUEUED', 'RUNNING', 'STOPPING'].includes(existing.status)) throw new ControlError('JOB_ACTIVE', `job ${existing.job_id} is already active`);
   const jobId = `job-${Date.now()}-${nonce(6)}`;
@@ -490,7 +511,7 @@ export async function launchJob(root, mode, args, channel = 'mcp-user') {
     const logDir = path.join(control, 'jobs', `${jobId}.logs`); await fs.mkdir(logDir, { recursive: true });
     stdout = await fs.open(path.join(logDir, 'stdout.log'), 'a', 0o600); stderr = await fs.open(path.join(logDir, 'stderr.log'), 'a', 0o600);
     await coordinationLock(); coordinationLock = null;
-    await spawnDetachedWorker(root, jobId, stdout.fd, stderr.fd); spawned = true; await stdout.close(); stdout = null; await stderr.close(); stderr = null;
+    await spawnDetachedWorker(root, jobId, stdout.fd, stderr.fd); spawned = true; receipt.spawned = true; await stdout.close(); stdout = null; await stderr.close(); stderr = null;
     return { ok: true, idempotent: false, job: await waitForWorkerStart(root, jobId) };
   } catch (error) { if (coordinationLock) await coordinationLock(); await stdout?.close().catch(() => {}); await stderr?.close().catch(() => {}); if (!spawned) await failUnspawnedJob(root, control, job, jobLock, requestIndexFile, error); throw error; }
 }
@@ -524,8 +545,9 @@ export async function launchActivation(root) {
   } catch (error) { await stdout?.close().catch(() => {}); await stderr?.close().catch(() => {}); if (!spawned) await failUnspawnedJob(root, control, job, jobLock, requestIndexFile, error); throw error; }
 }
 
-export async function setIntent(root, desired) {
+export async function setIntent(root, desired, expectedJobId = null) {
   const { loop, control } = await assertControlPath(root); const job = await activeJob(root);
+  if (expectedJobId && job?.job_id !== expectedJobId) throw new ControlError('CHILD_JOB_CHANGED', 'The stop request belongs to a different managed job.');
   if (job && ['QUEUED', 'RUNNING', 'STOPPING'].includes(job.status)) {
     if (job.operation === 'activate') throw new ControlError('ACTIVATION_NOT_STOPPABLE', 'activation probes cannot be paused or cancelled; each probe has its approved finite timeout', { job_id: job.job_id });
     await assertJobFence(control, job); const release = await acquireRuntimeGate(root, job);
@@ -538,6 +560,7 @@ export async function setIntent(root, desired) {
     await abandonWaitingNode(root).catch(() => false);
     return { ok: true, deferred_until_node_boundary: job.status !== 'QUEUED', desired_status: desired, observed_status: 'STOPPING', job_id: job.job_id };
   }
+  if (expectedJobId) throw new ControlError('NOT_RUNNING', 'The referenced managed job has already stopped; inspect its terminal record.');
   if (await exists(path.join(control, 'job.lock'))) throw new ControlError('JOB_STARTING', 'a fenced managed job is starting; retry pause or cancel');
   await assertNoEngineLock(root);
   const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: desired.toLowerCase() });
@@ -740,6 +763,7 @@ async function verifyBoundExecution(root, job) {
   const current = await readJson(path.join(root, '.loop', 'control', 'current-job.json'), 'current job'); if (current.job_id !== job.job_id) throw new ControlError('JOB_FENCE_LOST', 'managed job is no longer current');
   const activation = await verifyActivationBinding(root); if ((activation.setup_digest || 'legacy') !== job.activation_digest) throw new ControlError('JOB_SCOPE_CHANGED', 'activation binding changed after the job was queued');
   const config = await readJson(path.join(root, '.loop', 'host.local.json'), 'host.local.json'); await verifyHostConfiguration(root, config); if (jsonDigest(config) !== job.host_config_digest) throw new ControlError('JOB_SCOPE_CHANGED', 'provider configuration changed after the job was queued');
+  if (config.host === 'api' || config.review_host === 'api') { const team = await verifyTeamBinding(root); if (team.team_digest !== config.team_digest) throw new ControlError('JOB_SCOPE_CHANGED', 'Team changed during the job.'); }
   const state = await readJson(path.join(root, '.loop', 'state.json'), 'state'); if (state.work_item_id !== job.work_item_id) throw new ControlError('JOB_SCOPE_CHANGED', 'work item changed after the job was queued');
 }
 

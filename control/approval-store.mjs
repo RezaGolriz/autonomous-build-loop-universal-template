@@ -71,3 +71,33 @@ export async function verifyOperationConfirmation(root, receipt) {
   if (!timingSafeEqual(expected, Buffer.from(receipt.host_signature, 'hex'))) throw new ControlError('CONFIRMATION_UNTRUSTED', 'confirmation signature does not match this project and host');
   return receipt;
 }
+
+
+// Scheduler records have their own signing domain and persistent private
+// rollback anchors, outside every controlled project workspace.
+export async function schedulerTrustDirectory(root, create = false) {
+  root = await fs.realpath(root);
+  const location = path.resolve(process.env.BUILD_LOOP_APPROVAL_STORE || path.join(os.homedir(), '.local', 'state', 'universal-build-loop'));
+  if (!create && !await fs.lstat(location).catch(() => null)) return null;
+  const base = await fs.realpath(location);
+  const directory = path.join(base, 'scheduler', jsonDigest({ root }));
+  if (!create && !await fs.lstat(directory).catch(() => null)) return null;
+  await hostKey(root, create);
+  for (const part of [path.dirname(directory), directory]) {
+    if (create) await fs.mkdir(part, { recursive: true, mode: 0o700 });
+    const stat = await fs.lstat(part).catch(() => null);
+    if (!stat) return null;
+    if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid()) || await fs.realpath(part) !== part) throw new ControlError('UNSAFE_SCHEDULER_STORE', 'Scheduler anchors must remain in a private host-owned directory.');
+  }
+  return directory;
+}
+export async function signSchedulerRecord(root, key, record) {
+  root = await fs.realpath(root);
+  const { host_signature, ...unsigned } = record;
+  return createHmac('sha256', await hostKey(root, true)).update(JSON.stringify(['scheduler-record-v1', root, key, jsonDigest(unsigned)])).digest('hex');
+}
+export async function verifySchedulerRecord(root, key, record) {
+  if (!/^[a-f0-9]{64}$/.test(record?.host_signature ?? '')) throw new ControlError('SCHEDULER_UNTRUSTED', 'Scheduler record has no trusted signature.');
+  const expected = await signSchedulerRecord(root, key, record);
+  if (!timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(record.host_signature, 'hex'))) throw new ControlError('SCHEDULER_UNTRUSTED', 'Scheduler record does not match its host, project and record identity.');
+}
