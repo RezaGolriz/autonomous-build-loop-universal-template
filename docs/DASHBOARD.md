@@ -367,9 +367,24 @@ Recovery details and limitations: [Teams](TEAMS.md).
 ## One main dashboard for team approvals
 
 Use `serve` on the **team controller folder** before requesting decisions.
-The main page combines package progress with a **Decisions** panel. It lists
+The main page opens on **Work packages**, with overall progress above the package
+list and the selected package beside it. Switch to **Approvals** to see the
+**Decisions** panel. The number on the tab counts pending decisions. It lists
 team decisions and setup/work decisions for registered packages. You do not
 need a different dashboard for every package.
+
+You can switch between **Work packages**, **Agent team**, **Set up your team**,
+and **Approvals** without scrolling through every section. In Approvals, open
+a card to read its exact proposal; only one card stays expanded at a time.
+**Runtime and checkpoints**, **Workspace and evidence**, and the explanation of
+progress are expandable when you need more detail. The legacy single-project
+view remains under **Advanced · single-project workflow and evidence**. A project
+hold stays visible above the tabs. Reload the page to refresh its data; your
+selected tab is kept in the page address.
+
+For example, check the overall bar, select the CSV package to read its next
+step, then switch to **Approvals** to review its setup. You do not need to scroll
+past the agent roster, configuration form or evidence tables.
 
 Example:
 
@@ -401,3 +416,18 @@ single-use and lasts ten minutes; after opening it, the browser session lasts
 twelve hours. Reload the clean page address to see new requests. If a request
 expired, ask the assistant to prepare a fresh one; it is never approved merely
 by refreshing the page.
+
+### After updating Build Loop
+
+An already running page uses the version it started with. If the layout still
+looks old, stop the page at your own terminal and start it again with the updated
+Build Loop installation. Use the same controller folder; this does not approve
+anything or start work. Ask your assistant for a fresh dashboard link afterwards.
+
+```bash
+build-loop serve --root /absolute/team-controller --stop
+build-loop serve --root /absolute/team-controller
+```
+
+Setup proposals also bind the engine version. If an update makes a proposal
+stale, prepare and review a fresh proposal; an old approval is not transferred.

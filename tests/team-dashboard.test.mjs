@@ -25,3 +25,13 @@ test('team dashboard escapes untrusted observations and labels gate-based progre
   assert.ok(html.includes('0 accepted by a person'));
   assert.throws(() => renderTeamDashboard({}, 'x" onload="alert(1)'), /nonce/);
 });
+
+test('team decisions have their own view while runtime detail stays collapsed', () => {
+  const html = renderTeamDashboard({ packages: [{ id: 'one', progress: null }] }, '0123456789abcdef', {
+    decisions: '<section id="decisions">Trusted control-page panel</section>', decisionCount: 2,
+  });
+  assert.match(html, /data-team-tab="decisions"[^>]*>Approvals <span class="team-badge">2<\/span>/);
+  assert.match(html, /data-team-view="decisions" hidden/);
+  assert.match(html, /<details class="team-runtime"><summary>Runtime and checkpoints/);
+  assert.doesNotMatch(renderTeamDashboard({}, '0123456789abcdef'), /data-team-tab="decisions"/);
+});

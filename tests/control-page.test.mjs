@@ -338,6 +338,11 @@ test('main dashboard collects child setup approvals and binds scope, models and 
   const post = fields => send(`${url}/decide`, { method: 'POST', cookie, origin: url, body: form(fields) });
   const receiptPath = path.join(child, '.loop', 'control', 'approvals', `${requested.setup_digest}.json`);
   const hasReceipt = () => fs.stat(receiptPath).then(() => true, () => false);
+  assert.match(page.text, /data-team-view="decisions" hidden/);
+  const wrongWord = await post({ ...fields, decision: 'NOT_APPROVED' });
+  assert.equal(wrongWord.status, 400);
+  assert.match(wrongWord.text, /Type APPROVE exactly/);
+  assert.match(wrongWord.text, /tab\('decisions',false\)/, 'failed confirmation stays in the Approvals view');
   assert.equal((await post({ ...fields, csrf: 'wrong' })).status, 403);
   assert.equal((await post({ ...fields, package_id: 'other' })).status, 409);
   assert.equal((await post({ ...fields, spec_digest: 'wrong' })).status, 303);

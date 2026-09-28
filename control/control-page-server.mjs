@@ -149,7 +149,7 @@ const csrfField = (session) => `<input type="hidden" name="csrf" value="${esc(se
 function pendingCard(request, session, target, displayDigest = requestDigest(request)) {
   const word = humanOperations[request.operation];
   const rows = request.summary.map((entry) => `<dt>${esc(entry.label)}</dt><dd>${esc(entry.value)}</dd>`).join('');
-  return `<div class="decision"><h3>${esc(request.operation)}${request.item_id ? ` · ${esc(request.item_id)}` : ''}</h3>`
+  return `<details class="decision decision-card"><summary><strong>${esc(request.operation)}${request.item_id ? ` · ${esc(request.item_id)}` : ''}</strong></summary>`
     + `<dl>${rows}<dt>Request expires</dt><dd>${esc(request.expires_at)}</dd></dl>`
     + `<details><summary>Technical digest</summary><pre>${esc(JSON.stringify({ request_id: request.request_id, request_digest: requestDigest(request) }, null, 2))}</pre></details>`
     + `<form method="post" action="/decide">${csrfField(session)}${targetFields(target)}`
@@ -157,14 +157,14 @@ function pendingCard(request, session, target, displayDigest = requestDigest(req
     + `<input type="hidden" name="request_digest" value="${esc(displayDigest)}">`
     + `<label for="w-${esc(request.request_id)}">Type <code>${esc(word)}</code> to confirm this exact decision</label>`
     + `<input id="w-${esc(request.request_id)}" name="decision" autocomplete="off" autocapitalize="characters" spellcheck="false" required>`
-    + ` <button>Confirm this exact decision</button></form></div>`;
+    + ` <button>Confirm this exact decision</button></form></details>`;
 }
 
 const targetFields = target => `<input type="hidden" name="package_id" value="${esc(target.package_id)}"><input type="hidden" name="spec_digest" value="${esc(target.spec_digest)}">`;
 
 function setupCard(entry, session) {
   const { target, request, summary, fingerprint } = entry;
-  return `<div class="decision"><h3>Approve setup · ${esc(target.label)}</h3><p>Project: <code>${esc(target.root)}</code></p>`
+  return `<details class="decision decision-card"><summary><strong>Approve setup · ${esc(target.label)}</strong></summary><p>Project: <code>${esc(target.root)}</code></p>`
     + `<p>${esc(summary.request)}</p><dl><dt>Models and providers</dt><dd>${esc(JSON.stringify(summary.provider))}</dd>`
     + `<dt>Allowed changes</dt><dd>${esc(summary.allowed_paths.join(', '))}</dd><dt>Frozen paths</dt><dd>${esc(summary.frozen_paths.join(', '))}</dd>`
     + `<dt>Positive checks</dt><dd>${esc(summary.commands.map(c => `${c.argv.join(' ')} (${c.timeout_seconds}s)`).join('; '))}</dd>`
@@ -173,7 +173,7 @@ function setupCard(entry, session) {
     + `<p>This approves the setup and disposable probes only. It does not activate the project, authorize work, or accept a result.</p>`
     + `<form method="post" action="/decide">${csrfField(session)}${targetFields(target)}<input type="hidden" name="kind" value="setup">`
     + `<input type="hidden" name="request_id" value="${esc(request.approval_id)}"><input type="hidden" name="request_digest" value="${esc(fingerprint)}">`
-    + `<label>Type <code>APPROVE</code> to approve this exact setup<input name="decision" autocomplete="off" spellcheck="false" required></label><button>Approve this exact setup</button></form></div>`;
+    + `<label>Type <code>APPROVE</code> to approve this exact setup<input name="decision" autocomplete="off" spellcheck="false" required></label><button>Approve this exact setup</button></form></details>`;
 }
 
 async function directActions(session, status) {
@@ -232,14 +232,15 @@ async function panel(session, message) {
   body += decisions.notices.map(text => `<p class="flash bad">${esc(text)}</p>`).join('');
   const flash = message ? `<p class="flash ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</p>` : '';
   const where = isLoopbackAddress(binding.listen) ? 'This page is served on this machine only.' : `This page is served on ${esc(binding.listen)} so a phone inside your private network or VPN can open it. Anyone who can reach it and has the link can act here.`;
-  return `<style>.decisions input:not([type]),.decisions input[name=decision],.decisions input[inputmode]{font:inherit;padding:10px;border:1px solid #899bad;border-radius:6px;width:100%}.decisions form{margin:14px 0;padding:14px;border:1px solid #d8e0ea;border-radius:10px}.decisions .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.decisions dt{font-weight:650;margin-top:6px}.decisions dd{margin-left:0}.decision{border-top:1px solid #d8e0ea;padding-top:8px}.flash{padding:10px;border-radius:8px}.flash.ok{background:#dcfce7}.flash.bad{background:#fde2e2}</style>`
-    + `<section class="card decisions" id="decisions"><h2>Decisions</h2>${flash}${body}<p class="muted">${where} A decision here is recorded with the assurance local-user-action: somebody with access to this page did it, which is not proof of who.</p></section>`;
+  return { count: pending.length, html: `<style>.decisions input:not([type]),.decisions input[name=decision],.decisions input[inputmode]{font:inherit;padding:10px;border:1px solid #899bad;border-radius:6px;width:100%}.decisions form{margin:14px 0;padding:14px;border:1px solid #d8e0ea;border-radius:10px}.decisions .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.decisions dt{font-weight:650;margin-top:6px}.decisions dd{margin-left:0}.decision{border:1px solid #d8e0ea;border-radius:10px;padding:12px;margin:10px 0}.decision>summary{cursor:pointer}.decisions>p{font-size:13px}.flash{padding:10px;border-radius:8px}.flash.ok{background:#dcfce7}.flash.bad{background:#fde2e2}</style>`
+    + `<section class="card decisions" id="decisions"><h2>Decisions</h2>${flash}${body}<p class="muted">${where} A decision here is recorded with the assurance local-user-action: somebody with access to this page did it, which is not proof of who.</p></section>` };
 }
 
 async function renderPage(res, session, status = 200, message = null) {
   const scriptNonce = nonce(24);
   const flash = message ?? session.flash; session.flash = null;
-  const html = await renderDashboard(root, scriptNonce, { label: 'Control page', panel: await panel(session, flash) });
+  const decisions = await panel(session, flash);
+  const html = await renderDashboard(root, scriptNonce, { label: 'Control page', panel: decisions.html, decision_count: decisions.count, show_decisions: Boolean(flash) });
   baseHeaders(res, scriptNonce);
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -247,7 +248,7 @@ async function renderPage(res, session, status = 200, message = null) {
 
 function redirectHome(res, session, message) {
   if (message) session.flash = message;
-  res.writeHead(303, { Location: '/' }); res.end();
+  res.writeHead(303, { Location: '/#decisions' }); res.end();
 }
 
 // ---- Decisions ------------------------------------------------------------

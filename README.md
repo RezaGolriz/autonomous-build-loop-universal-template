@@ -315,7 +315,16 @@ browser. The GitHub file view itself shows source code.
 ## Use the control page
 
 For a team, this is your **main dashboard**: package progress, agent status and
-human decisions belong on this one page. Ask:
+human decisions belong on this one page.
+
+The compact team view starts with **Work packages** and the overall progress bar.
+Select a package to see its next step beside the list. Use **Agent team**,
+**Set up your team**, or **Approvals** for the other views. The Approvals badge
+counts pending decisions; open one card to review it. Runtime details and the
+older single-project view are expandable, so you do not have to scroll through
+everything to find a decision.
+
+Ask:
 
 > Open the main Build Loop dashboard for this team. Put the team approval,
 > each registered package's setup approval, and later work authorizations
