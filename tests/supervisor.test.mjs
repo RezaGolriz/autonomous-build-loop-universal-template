@@ -10,8 +10,10 @@ import { recordTrustedApproval } from '../control/approval.mjs';
 import { authorize } from '../control/backlog.mjs';
 import { loadTeam, teamConfigure } from '../control/team.mjs';
 import { authorizeTeamFrozen, teamApprovalSubject } from '../control/team-approval.mjs';
+import { childReadiness, readStore } from '../control/package-store.mjs';
+import { jsonDigest } from '../control/common.mjs';
 import { readSchedulerRecord, saveSchedulerRecord } from '../control/scheduler-store.mjs';
-import { packageAdd, packagesConflict, planNodeAllowance, reconcileChild, supervisorCancel, supervisorPause, supervisorRecover, supervisorResume, supervisorStart, supervisorStatus } from '../control/supervisor.mjs';
+import { packageAdd, packagesConflict, planNodeAllowance, reconcileChild, reconcileInterruptedChild, supervisorCancel, supervisorPause, supervisorRecover, supervisorResume, supervisorStart, supervisorStatus } from '../control/supervisor.mjs';
 
 process.env.BUILD_LOOP_APPROVAL_STORE = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'supervisor-trust-')));
 await fs.chmod(process.env.BUILD_LOOP_APPROVAL_STORE, 0o700);
@@ -263,4 +265,74 @@ test('a lost supervisor reconnects to the same job without resetting counters or
   assert.ok(snapshot.job.packages[0].nodes_completed >= 6);
   assert.ok(snapshot.job.packages[0].elapsed_ms > 0);
   assert.equal(snapshot.packages[0].progress.passed, 6);
+});
+
+test('completion between the status read and dead-worker probe is reconciled exactly once', async () => {
+  const finished = new Date(Date.now() - 4000).toISOString();
+  const base = { job_id: 'job-race', created_at: new Date(Date.now() - 60000).toISOString(), pid: 2147483647 };
+  const terminal = { job: { ...base, status: 'COMPLETED', nodes_completed: 3, finished_at: finished } };
+  const reads = [{ job: { ...base, status: 'RUNNING', nodes_completed: 1 } }, terminal];
+  const entry = { child_job_id: base.job_id, tick_at: new Date(Date.parse(finished) - 6000).toISOString(), elapsed_ms: 1000, nodes_completed: 2, child_nodes_counted: 1, running: true };
+  const observed = await reconcileChild({ root: '/unused' }, entry, { readChild: async () => reads.shift() });
+  assert.equal(observed.active, false); assert.equal(reads.length, 0);
+  assert.equal(entry.child_recovery_required, undefined);
+  assert.equal(entry.nodes_completed, 4); assert.equal(entry.elapsed_ms, 7000);
+  await reconcileChild({ root: '/unused' }, entry, { readChild: async () => terminal });
+  assert.equal(entry.nodes_completed, 4); assert.equal(entry.elapsed_ms, 7000);
+  const interrupted = { ...entry, running: true };
+  await reconcileChild({ root: '/unused' }, interrupted, { readChild: async () => ({ job: { ...terminal.job, status: 'RUNNING', finished_at: null } }) });
+  assert.equal(interrupted.recovery_reason, 'WORKER_INTERRUPTED');
+});
+
+test('official recovery verifies terminal bindings and locks, retains counters and enforces resume limits', { timeout: 180000 }, async () => {
+  const root = await temp('team-sticky-'); await teamConfigure(root, { config });
+  await authorizeTeamFrozen(root, await teamApprovalSubject(root), 'interactive-tty');
+  const workspace = await child();
+  await packageAdd(root, { package_id: 'guide', workspace_root: workspace, budget: { soft_seconds: 300, hard_ceiling_seconds: 600 } });
+  const binding = await childReadiness(workspace);
+  const launched = await launchJob(workspace, 'start', { request_id: 'sticky-child', max_nodes: 1 });
+  let cj; const deadline = Date.now() + 60000;
+  do { cj = (await dispatch(workspace, 'status', { job_id: launched.job.job_id })).job;
+    if (cj.finished_at && !await fs.lstat(path.join(workspace, '.loop/control/job.lock')).catch(() => null)) break;
+    await new Promise(r => setTimeout(r, 50));
+  } while (Date.now() < deadline);
+  assert.equal(cj.status, 'COMPLETED');
+  const packages = (await readStore(root)).packages; const team = await loadTeam(root);
+  const dir = path.join(root, '.loop/scheduler/supervisor'); await fs.mkdir(path.join(dir, 'jobs'), { recursive: true });
+  const id = 'team-job-sticky1234'; const file = path.join(dir, 'jobs', `${id}.json`);
+  const flagged = (extra = {}) => ({ id: 'guide', work_item_id: binding.work_item_id, activation_digest: binding.activation_digest, host_config_digest: binding.host_config_digest,
+    child_job_id: cj.job_id, child_request_id: cj.request_id, elapsed_ms: 5000, nodes_completed: 3, child_nodes_counted: 0, retries: 0, attempt: 1, extension_seconds: 0,
+    running: false, child_recovery_required: true, status: 'BLOCKED', tick_at: new Date().toISOString(),
+    blocker: 'CHILD_RECOVERY_REQUIRED: Interrupted child ownership requires inspection; no engine locks are removed.', ...extra });
+  const install = entry => saveSchedulerRecord(root, file, { schema_version: 1, kind: 'supervisor-job', job_id: id, team_digest: team.team_digest,
+    specs_digest: jsonDigest(packages), package_specs: packages, status: 'BLOCKED', desired_status: 'RUNNING', pid: null, fence: 'fixture-fence', max_nodes_per_package: 12, packages: [entry] });
+  await saveSchedulerRecord(root, path.join(dir, 'current.json'), { kind: 'supervisor-current', job_id: id });
+  const after = async () => (await readSchedulerRecord(root, file)).packages[0];
+  const blocked = async () => { await supervisorRecover(root); const entry = await after(); assert.equal(entry.child_recovery_required, true); assert.equal(entry.nodes_completed, 3); assert.equal(entry.elapsed_ms, 5000); };
+  for (const extra of [{ work_item_id: 'OTHER' }, { child_request_id: 'other' }, { activation_digest: 'stale' }, { host_config_digest: 'stale' },
+    { recovery_reason: 'CLOSING_OVER_BUDGET' }, { recovery_reason: 'RECONCILE_FAILED' }]) { await install(flagged(extra)); await blocked(); }
+  const lock = path.join(workspace, '.loop/orchestrator.lock'); await fs.mkdir(lock);
+  try {
+    await install(flagged()); await blocked(); await blocked();
+    assert.equal((await after()).recovery_reason, 'WORKER_INTERRUPTED');
+  } finally { await fs.rmdir(lock); }
+  assert.equal((await supervisorRecover(root)).stopping, false, 'a released lock permits recovery after repeated refusals');
+  assert.equal((await after()).child_recovery_required, false);
+  const childFile = path.join(workspace, '.loop/control/jobs', `${cj.job_id}.json`); const original = await fs.readFile(childFile);
+  try {
+    for (const extra of [{ status: 'RUNNING', pid: process.pid, finished_at: null }, { status: 'INVALID' }, { finished_at: null }]) {
+      await fs.writeFile(childFile, JSON.stringify({ ...cj, ...extra })); await install(flagged()); await blocked();
+    }
+    const originalLstat = fs.lstat;
+    fs.lstat = async (file, ...args) => { if (file === lock) throw Object.assign(new Error('Cannot inspect lock'), { code: 'EACCES' }); return originalLstat(file, ...args); };
+    try { await fs.writeFile(childFile, original); await install(flagged()); await blocked(); } finally { fs.lstat = originalLstat; }
+  } finally { await fs.writeFile(childFile, original); }
+  await install(flagged()); assert.equal((await supervisorRecover(root)).stopping, false);
+  const cleared = await after(); assert.equal(cleared.child_recovery_required, false); assert.equal(cleared.status, 'PAUSED');
+  assert.equal(cleared.nodes_completed, 3 + cj.nodes_completed); assert.equal(cleared.elapsed_ms, 5000);
+  await supervisorRecover(root); assert.equal((await after()).nodes_completed, cleared.nodes_completed);
+  await install(flagged({ nodes_completed: 12 })); assert.equal((await supervisorResume(root, { job_id: id })).blocked, true);
+  assert.match((await after()).blocker, /^PACKAGE_NODE_BUDGET_EXHAUSTED/);
+  assert.equal((await dispatch(workspace, 'status')).job.job_id, cj.job_id);
+  await assert.rejects(() => reconcileInterruptedChild({ root: workspace }, flagged({ child_request_id: null })), e => e.code === 'CHILD_RECOVERY_REQUIRED');
 });

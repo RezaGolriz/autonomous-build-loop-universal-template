@@ -124,6 +124,34 @@ invalid signature or missing private record blocks. Recovery of short scheduler
 locks requires a known dead owner; live or unknown owners are never displaced.
 This does not remove locks belonging to the child engine.
 
+### When a finished worker looks interrupted
+
+A worker can finish between two status checks. The supervisor checks its
+record again before treating that as an interruption. If an earlier check
+already blocked the package, recovery examines the same recorded child job.
+It can clear the interruption only when that exact job has a complete final
+record and no worker or engine lock still owns the workspace. Older records that contain only an interruption message must also pass these
+checks; recovery does not trust that message as proof of completion. A temporary
+lock or read error retains the reason so a later recovery can inspect it again.
+It keeps the original time and node counts; checking twice does not charge the step twice.
+
+For example, a package may finish validation just as the supervisor loses sight
+of its worker. Ask: **“Recover the existing team job and resume its remaining
+step.”** If the final record is verified, the next step is handover. The earlier
+implementation and review are not started again. A failed check, changed scope,
+expired authorization or exhausted budget still blocks work.
+
+```mermaid
+flowchart LR
+  A[Read the same child job] --> B{Exact completed record?}
+  B -->|No| C[Keep the package blocked]
+  B -->|Yes| D{Worker ended and locks released?}
+  D -->|No| C
+  D -->|Yes| E[Keep time and step counts]
+  E --> F[Check authority and remaining budget]
+  F --> G[Resume the remaining step if allowed]
+```
+
 ## Keep the decisions simple
 
 You still review the exact proposal and type the required word on the local

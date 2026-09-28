@@ -245,17 +245,24 @@ async function recoverLaunching(pkg, entry) {
   entry.tick_at = observed.job.created_at; entry.status = 'RUNNING';
 }
 
-export async function reconcileChild(pkg, entry) {
+export async function reconcileChild(pkg, entry, { readChild = childStatus } = {}) {
   if (!entry.child_job_id) throw new ControlError('CHILD_JOB_MISSING', 'The child launch must be recovered by its recorded request ID.');
-  const result = await childStatus(pkg.root, { job_id: entry.child_job_id });
-  const cj = result.job;
+  let result = await readChild(pkg.root, { job_id: entry.child_job_id });
+  let cj = result.job;
   if (cj?.job_id !== entry.child_job_id) throw new ControlError('CHILD_JOB_CHANGED', 'The referenced child job cannot be verified.');
+  // A worker can persist completion and exit after the first status read.
+  const workerAlive = alive(cj.pid);
+  if (running.includes(cj.status) && !workerAlive) {
+    const fresh = await readChild(pkg.root, { job_id: entry.child_job_id });
+    if (fresh.job?.job_id !== entry.child_job_id) throw new ControlError('CHILD_JOB_CHANGED', 'The referenced child job cannot be verified.');
+    if (!running.includes(fresh.job.status)) { result = fresh; cj = fresh.job; }
+  }
   const tick = Date.parse(entry.tick_at);
   if (!Number.isFinite(tick) || !Number.isFinite(entry.elapsed_ms) || entry.elapsed_ms < 0 || !Number.isInteger(cj.nodes_completed) || cj.nodes_completed < 0) throw new ControlError('INVALID_CHILD_ACCOUNTING', 'Invalid child time or node counters.');
   // A stop publishes its terminal status before the worker's final persist
   // adds finished_at. Keep that live closing interval in flight; it is not a
   // corrupted checkpoint and never permission to launch another child.
-  const finalizing = !running.includes(cj.status) && !Number.isFinite(Date.parse(cj.finished_at)) && alive(cj.pid);
+  const finalizing = !running.includes(cj.status) && !Number.isFinite(Date.parse(cj.finished_at)) && workerAlive;
   const active = running.includes(cj.status) || finalizing;
   const finished = active ? Date.now() : Date.parse(cj.finished_at);
   if (!Number.isFinite(finished)) throw new ControlError('INVALID_CHILD_ACCOUNTING', 'Terminal child has no valid finish time.');
@@ -265,12 +272,54 @@ export async function reconcileChild(pkg, entry) {
   if (cj.nodes_completed < counted) throw new ControlError('INVALID_CHILD_ACCOUNTING', 'Child node counter moved backwards.');
   entry.nodes_completed += cj.nodes_completed - counted; entry.child_nodes_counted = cj.nodes_completed;
   if (finalizing && pkg.budget && entry.elapsed_ms >= pkg.budget.hard_ceiling_seconds * 1000) {
-    entry.running = false; entry.child_recovery_required = true; entry.status = 'BLOCKED';
+    entry.running = false; entry.child_recovery_required = true; entry.recovery_reason = 'CLOSING_OVER_BUDGET'; entry.status = 'BLOCKED';
     entry.blocker = 'Closing checkpoint exceeded the original hard budget. Inspect the existing worker; its locks are retained.';
   }
   if (!active) { entry.running = false; entry.checkpoint_at = cj.finished_at; }
-  else if (!alive(cj.pid) && Date.now() - Date.parse(cj.created_at) > 5000) { entry.running = false; entry.child_recovery_required = true; entry.status = 'BLOCKED'; entry.blocker = 'Child worker interrupted; inspect descendant ownership and locks before continuing.'; }
+  else if (!workerAlive && Date.now() - Date.parse(cj.created_at) > 5000) { entry.running = false; entry.child_recovery_required = true; entry.recovery_reason = 'WORKER_INTERRUPTED'; entry.status = 'BLOCKED'; entry.blocker = 'Child worker interrupted; inspect descendant ownership and locks before continuing.'; }
   return { result, cj, finalizing, active: active && !entry.child_recovery_required };
+}
+
+const recoveryMessage = 'Interrupted child ownership requires inspection; no engine locks are removed.';
+const legacyInterruption = new Set(['Child worker interrupted; inspect descendant ownership and locks before continuing.', `CHILD_RECOVERY_REQUIRED: ${recoveryMessage}`]);
+
+// Only a verified terminal record can release an earlier interruption observation.
+// It releases no workspace locks and never grants authority or resets counters.
+export async function reconcileInterruptedChild(pkg, entry) {
+  if (!entry.child_recovery_required || entry.running) return false;
+  const reason = entry.recovery_reason ?? (legacyInterruption.has(entry.blocker) ? 'WORKER_INTERRUPTED' : null);
+  if (reason !== 'WORKER_INTERRUPTED') return false;
+  // Preserve the cause before a refusal replaces the human-readable blocker.
+  entry.recovery_reason = reason;
+  const refuse = message => { throw new ControlError('CHILD_RECOVERY_REQUIRED', `${recoveryMessage} ${message}`); };
+  if (!entry.child_job_id || !entry.child_request_id) refuse('The launched child identity is not recorded.');
+  const verified = await childStatus(pkg.root, { job_id: entry.child_job_id });
+  const cj = verified.job;
+  if (cj?.job_id !== entry.child_job_id || cj.request_id !== entry.child_request_id || cj.work_item_id !== entry.work_item_id
+    || cj.activation_digest !== entry.activation_digest || cj.host_config_digest !== entry.host_config_digest) throw new ControlError('CHILD_SCOPE_CHANGED', 'The child no longer matches its original binding.');
+  if (!['COMPLETED', 'FAILED', 'PAUSED', 'CANCELLED'].includes(cj.status) || alive(cj.pid)) refuse('The child is still active or its final status is invalid.');
+  if (!Number.isFinite(Date.parse(cj.finished_at))) refuse('The child has no durable terminal checkpoint.');
+  for (const lock of [path.join('control', 'job.lock'), 'engine.lock', 'orchestrator.lock']) {
+    const info = await fs.lstat(path.join(pkg.root, '.loop', lock)).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (info) refuse(`A workspace lock is still held: .loop/${lock}.`);
+  }
+  if ((await childStatus(pkg.root)).job?.job_id !== cj.job_id) refuse('Another child job has become current.');
+  const probe = { ...entry, running: true, child_recovery_required: false };
+  const observed = await reconcileChild(pkg, probe, { readChild: async () => verified });
+  if (observed.active || probe.child_recovery_required) refuse('The child checkpoint is not terminal.');
+  if (pkg.budget && probe.elapsed_ms >= pkg.budget.hard_ceiling_seconds * 1000) throw new ControlError('PACKAGE_BUDGET_EXHAUSTED', 'Original package time budget exhausted.');
+  Object.assign(entry, { elapsed_ms: probe.elapsed_ms, tick_at: probe.tick_at, nodes_completed: probe.nodes_completed,
+    child_nodes_counted: probe.child_nodes_counted, checkpoint_at: probe.checkpoint_at, running: false,
+    child_recovery_required: false, recovery_reason: null, blocker: null });
+  const state = observed.result.state;
+  if (state?.run_status === 'WAITING_FOR_HUMAN' && state?.gates?.HANDOVER?.status === 'PASSED') entry.status = 'WAITING_FOR_HUMAN';
+  else if (cj.status === 'FAILED' || state?.run_status === 'BLOCKED') { entry.status = 'BLOCKED'; entry.blocker = cj.last_error?.message ?? state?.last_result ?? 'Read the failed checks before continuing.'; }
+  else entry.status = 'PAUSED';
+  entry.next_action = 'Interrupted child verified at its terminal checkpoint; budgets and counters were retained.';
+  return true;
 }
 
 async function intentFor(root, p, job) {
@@ -297,6 +346,7 @@ async function settleOwnedChildren(root, p, job, desired, ownWorker = false) {
     try {
       await recoverLaunching(pkg, entry);
       if (!entry.running) {
+        if (await reconcileInterruptedChild(pkg, entry) && entry.status === 'PAUSED') entry.status = desired;
         unresolved ||= Boolean(entry.child_recovery_required);
         if (!entry.child_recovery_required && ['RUNNING', 'QUEUED'].includes(entry.status)) entry.status = desired;
         continue;
@@ -352,6 +402,7 @@ export async function supervisorResume(root, args = {}, channel = 'mcp-user') {
       try {
         await recoverLaunching(pkg, entry);
         if (entry.running) { const observed = await reconcileChild(pkg, entry); if (observed.active) continue; }
+        await reconcileInterruptedChild(pkg, entry);
         if (entry.child_recovery_required) throw new ControlError('CHILD_RECOVERY_REQUIRED', 'Interrupted child ownership requires inspection; no engine locks are removed.');
         const child = await guardChild(team, pkg);
         if (child.work_item_id !== entry.work_item_id || child.activation_digest !== entry.activation_digest || child.host_config_digest !== entry.host_config_digest) throw new ControlError('CHILD_SCOPE_CHANGED', 'The original child binding changed.');
@@ -426,7 +477,7 @@ export async function supervisorWorker(root, id, fence) {
         try { observed = await reconcileChild(pkg, entry); }
         catch (error) {
           entry.status = 'BLOCKED'; entry.blocker = error.message;
-          entry.running = false; entry.child_recovery_required = true;
+          entry.running = false; entry.child_recovery_required = true; entry.recovery_reason = 'RECONCILE_FAILED';
           continue;
         }
         const { result, cj, active, finalizing } = observed;
