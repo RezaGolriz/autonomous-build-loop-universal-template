@@ -148,9 +148,11 @@ const csrfField = (session) => `<input type="hidden" name="csrf" value="${esc(se
 
 function pendingCard(request, session, target, displayDigest = requestDigest(request)) {
   const word = humanOperations[request.operation];
-  const rows = request.summary.map((entry) => `<dt>${esc(entry.label)}</dt><dd>${esc(entry.value)}</dd>`).join('');
-  return `<details class="decision decision-card"><summary><strong>${esc(request.operation)}${request.item_id ? ` · ${esc(request.item_id)}` : ''}</strong></summary>`
+  const exact = request.summary.find(entry => entry.label === 'Complete frozen team and setup proposals');
+  const rows = request.summary.filter(entry => entry !== exact).map((entry) => `<dt>${esc(entry.label)}</dt><dd>${esc(entry.value)}</dd>`).join('');
+  return `<details class="decision decision-card"${request.operation === 'team_setup_authorize' ? ' open' : ''}><summary><strong>${request.operation === 'team_setup_authorize' ? 'Approve team and package setups' : esc(request.operation)}${request.item_id ? ` · ${esc(request.item_id)}` : ''}</strong></summary>`
     + `<dl>${rows}<dt>Request expires</dt><dd>${esc(request.expires_at)}</dd></dl>`
+    + (exact ? `<details><summary>Full frozen proposal</summary><pre>${esc(exact.value)}</pre></details>` : '')
     + `<details><summary>Technical digest</summary><pre>${esc(JSON.stringify({ request_id: request.request_id, request_digest: requestDigest(request) }, null, 2))}</pre></details>`
     + `<form method="post" action="/decide">${csrfField(session)}${targetFields(target)}`
     + `<input type="hidden" name="request_id" value="${esc(request.request_id)}">`
@@ -224,7 +226,9 @@ async function panel(session, message) {
   if (policy.human_confirmation === 'tty-only') {
     body = `<p>This project accepts human decisions only as a word typed at an interactive terminal${policy.error ? ` (the policy file is broken: ${esc(policy.error.message)})` : ''}. Nothing can be decided on this page; run the command at your own terminal, for example <code>build-loop accept --root ${esc(root)}</code>.</p>`;
   } else if (pending.length) {
-    body = `<p>${pending.length} decision(s) wait for you. Each shows exactly what will happen, frozen when it was asked for. Nothing is recorded until you type the word and press the button.</p>${pending.map(entry => entry.kind === 'setup' ? setupCard(entry, session) : `<h3>${esc(entry.target.label)}</h3><p><code>${esc(entry.target.root)}</code></p>${pendingCard(entry.request, session, entry.target, entry.fingerprint)}`).join('')}${await readHold(root).catch(() => null) ? '' : holdForm(session)}`;
+    const combine = pending.some(entry => entry.kind === 'setup' && entry.target.package_id)
+      ? `<form method="post" action="/action">${csrfField(session)}<input type="hidden" name="action" value="team_setup_authorize"><p>Have all package setups been prepared? Review one combined team-and-setup decision instead of approving each card.</p><button>Prepare combined review…</button></form>` : '';
+    body = `<p>${pending.length} decision(s) wait for you. Each shows exactly what will happen, frozen when it was asked for. Nothing is recorded until you type the word and press the button.</p>${combine}${pending.map(entry => entry.kind === 'setup' ? setupCard(entry, session) : `<h3>${esc(entry.target.label)}</h3><p><code>${esc(entry.target.root)}</code></p>${pendingCard(entry.request, session, entry.target, entry.fingerprint)}`).join('')}${await readHold(root).catch(() => null) ? '' : holdForm(session)}`;
   } else {
     const actions = await directActions(session, status);
     body = `<p>No decision is waiting. You can start one here; a button with … first shows you the exact frozen decision, and it is only recorded after you type its word.</p>${actions}`;
@@ -292,7 +296,8 @@ async function act(form, session, res) {
     redirectHome(res, session, { ok: true, text: 'The project is on hold. Nothing automated starts until a person releases it.' });
     return;
   }
-  if (action === 'accept') args = { confirm: 'ACCEPT' };
+  if (action === 'team_setup_authorize') args = { confirm: 'AUTHORIZE' };
+  else if (action === 'accept') args = { confirm: 'ACCEPT' };
   else if (action === 'release') args = { confirm: 'RELEASE' };
   else if (action === 'promote') args = { proposal_id: form.get('proposal_id') || '' };
   else if (action === 'authorize') {

@@ -199,23 +199,55 @@ The assistant should make these steps visible in plain language:
 2. Ask **one at a time or parallel**, which exact builders and reviewers may
    participate, and whether CLI processes are permitted. Default to one package.
 3. Start the main dashboard with `serve` on the team controller. Write a
-   paused team proposal with `team_configure`; request its decision with
-   `team_authorize`. It appears in the main Decisions panel.
+   paused team proposal with `team_configure`. Nothing is approved yet.
 4. Register isolated workspaces with `package_add`. `prepare: true` makes an
    empty folder, not a copy of your repository. For real code, use separately
    prepared checkouts or worktrees. Shared paths and resources are explicit.
 5. Use `package_control` to inspect, configure and prepare each registered
    workspace. It selects a package ID, never an arbitrary replacement root.
-6. Request each setup approval through `package_control`. With the main page
-   running, its Decisions panel collects those requests from registered roots.
-   You type `APPROVE` on each setup card. After approval, run its activation
-   probes. Obtain separate work authorization through `package_control` with
-   `authorize`; that decision also appears on the main page and needs your
-   typed `AUTHORIZE`. Team approval grants none of these permissions.
-7. For API workers, use `team_verify` explicitly for the selected members. A
+6. Request a setup proposal for **every** registered package through
+   `package_control` with `request_approval`. Then use
+   `team_setup_authorize` on the team controller. The main **Approvals** tab
+   shows one combined card with the team, every package, its model/provider,
+   allowed paths, commands and positive/negative checks. Read it and type
+   `AUTHORIZE` once. Each package still gets its own signed setup receipt;
+   no setup probe or work starts from this decision. If a proposal changed or
+   expired, prepare a fresh combined decision.
+7. Run `activate` for each package. It checks the approved setup in a
+   disposable copy. A failed check blocks that package. When the work item's
+   scope is ready, request **one separate work authorization per package**
+   through `package_control` with `authorize`. Read its allowed paths, budget
+   and expiry on the same page and type `AUTHORIZE`.
+8. For API workers, use `team_verify` explicitly for the selected members. A
    probe sends a small request and can incur API usage; status checks do not.
-   API child workspaces use the same team config and their own team approval.
-8. Start with `supervisor_start`, keep its job ID, and open the dashboard.
+   API child workspaces must have the same configured team; the combined
+   decision records their local team approvals too.
+9. Start with `supervisor_start`, keep its job ID, and open the dashboard.
+
+For example, **two packages now need three human decisions**: one combined
+team-and-setup decision, then one work authorization for each package. The old
+route, `team_authorize` plus an individual `APPROVE` for each setup, still
+works. It is useful when a package has a `tty-only` policy or is prepared later
+before the first supervisor job.
+The shell/CLI route still works; at an interactive terminal,
+`team_setup_authorize` prints the complete frozen proposal before asking for
+the word `AUTHORIZE`. No model or CLI call may type that word for you.
+
+```mermaid
+flowchart LR
+  A[Prepare team and package setups] --> B[One combined human decision]
+  B --> C[Run each setup's positive and negative checks]
+  C --> D[Authorize each ready work package]
+  D --> E[Run packages and review evidence]
+  E --> F[Human acceptance]
+```
+
+If a package changes before the combined decision, the confirmation is stale
+and none of the approvals is recorded. The package set is frozen in the
+decision. A failure while recording receipts across separate workspaces can
+leave some setup receipts in place; the team receipt is written last, and the
+supervisor still refuses any package without activation and separate READY
+work authorization. A changed work scope needs its own new work authorization.
 
 You can do the same through the Node CLI using operation names above and JSON
 input files. This keeps the shell route available; you do not need to paste

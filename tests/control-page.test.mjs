@@ -380,6 +380,73 @@ test('main dashboard collects child setup approvals and binds scope, models and 
   assert.equal(again.status, 409, 'one-shot decision cannot be submitted twice');
 });
 
+test('one frozen decision approves team and two setups, but authorizes no work', async (t) => {
+  const root = await project(t);
+  const members = ['builder', 'reviewer'].map(role => ({ id: role, role, provider: 'host', execution_kind: 'native', requested_model: 'host-default', tool_scope: [], data_scope: { read_paths: [], write_paths: [] } }));
+  const team = await dispatch(root, 'team_configure', { config: { schema_version: 1, team_id: 'two-guides', mode: 'parallel', max_active_packages: 2, max_active_agents: 2, execution_policy: 'native_only', members } });
+  assert.equal(team.ok, true, JSON.stringify(team));
+  const children = [];
+  t.after(async () => { for (const { child } of children) await fs.rm(child, { recursive: true, force: true }); });
+  for (const id of ['guide-a', 'guide-b']) {
+    const child = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'batch-setup-')));
+    children.push({ id, child });
+    assert.equal((await dispatch(child, 'demo', { kind: 'docs' })).ok, true);
+    assert.equal((await dispatch(root, 'package_add', { package_id: id, workspace_root: child, budget: { soft_seconds: 60, hard_ceiling_seconds: 60 } })).ok, true);
+  }
+  const { link, url } = await serveControlPage(root);
+  const cookie = await login(link);
+  for (const { id } of children) assert.equal((await dispatch(root, 'package_control', { package_id: id, operation: 'request_approval' })).ok, true);
+  let page = await send(`${url}/`, { cookie });
+  const prepare = [...page.text.matchAll(/<form method="post" action="\/action">([\s\S]*?)<\/form>/g)].map(match => match[1]).find(text => text.includes('value="team_setup_authorize"'));
+  assert.ok(prepare, 'the main page offers the combined review');
+  assert.equal((await send(`${url}/action`, { method: 'POST', cookie, origin: url, body: form({ action: 'team_setup_authorize', csrf: csrfOf(prepare) }) })).status, 303);
+  const pending = (await dispatch(root, 'team_setup_authorize', { confirm: 'AUTHORIZE' }));
+  assert.equal(pending.pending_confirmation, true, JSON.stringify(pending));
+  assert.equal((await dispatch(root, 'team_status')).approval.state, 'PENDING');
+  page = await send(`${url}/`, { cookie });
+  assert.match(page.text, /Approve team and package setups/);
+  assert.match(page.text, /provider and models/);
+  assert.doesNotMatch(page.text, /Approve setup · guide-a/, 'covered individual cards are hidden');
+  const decisionForm = [...page.text.matchAll(/<form method="post" action="\/decide">([\s\S]*?)<\/form>/g)].map(match => match[1]).find(text => text.includes(`value="${pending.request_id}"`));
+  assert.ok(decisionForm);
+  const fields = Object.fromEntries([...decisionForm.matchAll(/name="([^"]+)" value="([^"]*)"/g)].map(match => [match[1], match[2]]));
+  const post = body => send(`${url}/decide`, { method: 'POST', cookie, origin: url, body: form(body) });
+  assert.equal((await post({ ...fields, decision: 'APPROVE' })).status, 400);
+  assert.equal((await post({ ...fields, decision: 'AUTHORIZE', csrf: 'wrong' })).status, 403);
+  assert.equal((await post({ ...fields, decision: 'AUTHORIZE' })).status, 303);
+  assert.equal((await dispatch(root, 'team_status')).approval.state, 'APPROVED');
+  for (const { id, child } of children) {
+    const plan = await readJson(path.join(child, '.loop', 'candidate', 'setup.plan.json'));
+    const receipt = await readJson(path.join(child, '.loop', 'control', 'approvals', `${plan.setup_digest}.json`));
+    assert.equal(receipt.channel, 'local-http-user', id);
+    assert.equal(await fs.stat(path.join(child, '.loop', 'state.json')).then(() => true, () => false), false, 'setup approval never activates');
+    assert.equal(await fs.stat(path.join(child, '.loop', 'work-items', 'WI-001.authorization.json')).then(() => true, () => false), false, 'work authorization remains separate');
+  }
+  page = await send(`${url}/`, { cookie });
+  assert.doesNotMatch(page.text, /Approve team and package setups/);
+});
+
+test('a stale combined request does not hide a fresh individual setup card', async t => {
+  const root = await project(t);
+  const child = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'batch-stale-child-')));
+  t.after(() => fs.rm(child, { recursive: true, force: true }));
+  const members = ['builder', 'reviewer'].map(role => ({ id: role, role, provider: 'host', execution_kind: 'native', requested_model: 'host-default', tool_scope: [], data_scope: { read_paths: [], write_paths: [] } }));
+  assert.equal((await dispatch(root, 'team_configure', { config: { schema_version: 1, team_id: 'stale-batch', mode: 'sequential', execution_policy: 'native_only', members } })).ok, true);
+  assert.equal((await dispatch(child, 'demo', { kind: 'docs' })).ok, true);
+  assert.equal((await dispatch(root, 'package_add', { package_id: 'guide', workspace_root: child, budget: { soft_seconds: 60, hard_ceiling_seconds: 60 } })).ok, true);
+  const { link, url } = await serveControlPage(root);
+  const cookie = await login(link);
+  assert.equal((await dispatch(root, 'package_control', { package_id: 'guide', operation: 'request_approval' })).ok, true);
+  assert.equal((await dispatch(root, 'team_setup_authorize', { confirm: 'AUTHORIZE' })).pending_confirmation, true);
+  assert.doesNotMatch((await send(`${url}/`, { cookie })).text, /Approve setup · guide/);
+  assert.equal((await dispatch(child, 'configure', { host: 'mock', models: { default: 'changed' } })).ok, true);
+  assert.equal((await dispatch(root, 'package_control', { package_id: 'guide', operation: 'request_approval' })).ok, true);
+  const refreshed = (await send(`${url}/`, { cookie })).text;
+  assert.match(refreshed, /Approve setup · guide/);
+  assert.doesNotMatch(refreshed, /<strong>Approve team and package setups<\/strong>/);
+  assert.match(refreshed, /combined team-and-setup review is stale/);
+});
+
 test('registered child work confirmations appear and settle in the main dashboard', async (t) => {
   const root = await project(t), child = await project(t);
   assert.equal((await dispatch(root, 'package_add', { package_id: 'child', workspace_root: child, budget: { soft_seconds: 60, hard_ceiling_seconds: 60 } })).ok, true);

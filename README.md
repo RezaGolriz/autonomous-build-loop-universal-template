@@ -278,7 +278,8 @@ review, validation and time allowance.
 > Set up two independent packages: update the getting-started guide and the
 > troubleshooting guide. Allow two packages at a time. Ask which builder and
 > reviewer may help. Show their exact models, file access and time limits.
-> Prepare the approval pages and wait for me to complete them.
+> Prepare one combined team-and-setup review, then ask me to authorize each
+> work package when its scope is ready.
 
 ![The team workflow, from a request to separate package handovers](docs/assets/team-workflow.svg)
 
@@ -327,14 +328,17 @@ everything to find a decision.
 Ask:
 
 > Open the main Build Loop dashboard for this team. Put the team approval,
-> each registered package's setup approval, and later work authorizations
-> in its Decisions panel. Do not approve anything for me.
+> every registered package setup, and later work authorizations in its
+> Approvals tab. Prepare the combined team-and-setup review. Do not approve
+> anything for me.
 
 The assistant starts `serve` on the team controller **before** requesting
-approvals. You type `AUTHORIZE` for the team or work, and `APPROVE` for each
-setup. Every card names the exact project, paths, models and checks. Setup
-approval alone starts no work. Separate confirmation pages remain a fallback
-when the main dashboard is not running.
+approvals. Once all setups are prepared, one card shows the team and all
+package setups. You type `AUTHORIZE` **once** for that exact group. The
+assistant then runs each setup's checks. Later, you type `AUTHORIZE` for each
+work package, after reading its allowed files, time limit and expiry. For two
+packages, that is **three decisions instead of five**. The combined decision
+alone starts no work. The earlier separate team and setup approvals still work.
 
 The opening link works once, within ten minutes. After opening it, keep that
 browser tab or bookmark the clean page address: its session lasts twelve hours.

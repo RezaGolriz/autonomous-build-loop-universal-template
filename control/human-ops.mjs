@@ -23,7 +23,7 @@
 // to "tty-only" in .loop/control/policy.json; the confirmation page is then
 // refused and every such call is answered with CONFIRMATION_TTY_ONLY.
 import path from 'node:path';
-import { ControlError, confirmationPolicy, exists, readJson } from './common.mjs';
+import { ControlError, confirmationPolicy, exists, jsonDigest, readJson } from './common.mjs';
 import {
   accept, acceptanceSubject, authorizationRecord, authorizationSubject, authorize, authorizeFrozen,
   currentOrFirstBacklogItem, workItemFile,
@@ -33,6 +33,7 @@ import { holdSubject, readHold, releaseHold } from './hold.mjs';
 import { REVIEW_NOT_ISOLATED, recordedReview } from './chat.mjs';
 import { LOCAL_USER_ACTION, discardPendingConfirmations, humanOperations, requestConfirmation, settleConfirmations } from './confirm.mjs';
 import { teamApprovalSubject, authorizeTeamFrozen } from './team-approval.mjs';
+import { teamSetupSubject, authorizeTeamSetupsFrozen } from './team-setup-approval.mjs';
 
 const TTY_ONLY_DISCARDED = 'this project now accepts human decisions only as a word typed at an interactive terminal; the pending page request was thrown away';
 
@@ -40,6 +41,7 @@ const TTY_ONLY_DISCARDED = 'this project now accepts human decisions only as a w
 // it against the live project inside the lock in which it does the work.
 const runners = {
   team_authorize: (root, request) => authorizeTeamFrozen(root, request.decision.subject, 'local-http-user'),
+  team_setup_authorize: (root, request) => authorizeTeamSetupsFrozen(root, request.decision.subject, 'local-http-user'),
   accept: (root, request) => accept(root, { ...request.decision.args, confirm: humanOperations.accept }, 'local-http-user', request.decision.subject),
   authorize: (root, request) => authorizeFrozen(root, request.decision.record, request.decision.subject),
   promote: (root, request) => promote(root, request.decision.args, 'local-http-user', request.decision.subject),
@@ -62,7 +64,7 @@ export async function settleHumanDecisions(root, policy = null) {
 // left it implicit.
 async function decisionItem(root, operation, args) {
   const loop = path.join(root, '.loop');
-  if (operation === 'team_authorize') return (await teamApprovalSubject(root)).proposal_id;
+  if (operation === 'team_authorize' || operation === 'team_setup_authorize') return (await teamApprovalSubject(root)).proposal_id;
   if (operation === 'promote') return args.proposal_id ?? null;
   if (operation === 'release') return (await readHold(root).catch(() => null))?.item_id ?? null;
   if (operation === 'authorize') return args.item_id ?? await currentOrFirstBacklogItem(loop);
@@ -91,6 +93,25 @@ async function freezeDecision(root, operation, itemId, args) {
         line(`${member.id} credential reference`, member.credential_env ?? 'No API credential'),
         line(`${member.id} endpoint`, member.endpoint ?? 'Provider default'), line(`${member.id} limits`, member.budget ? JSON.stringify(member.budget) : 'Host limits: not enforced by this API runtime')]),
       line('Boundary', 'Each package still needs its own approved setup and scoped, unexpired work authorization. No fallback, acceptance or integration is granted.'),
+    ] };
+  }
+  if (operation === 'team_setup_authorize') {
+    const subject = await teamSetupSubject(root);
+    return { decision: { kind: 'team_setup_authorize', subject }, summary: [
+      line('Decision', 'Approve this exact team and the setup of every listed package. No work starts.'),
+      line('Team', subject.team.config.team_id),
+      line('Mode and concurrency', `${subject.team.config.mode}; ${subject.team.config.max_active_packages} packages; ${subject.team.config.max_active_agents} agents`),
+      ...subject.team.config.members.map(member => line(`Agent ${member.id}`, `${member.role}: ${member.provider}, ${member.execution_kind}, model ${member.requested_model}; reads ${member.data_scope.read_paths.join(', ')}; writes ${member.data_scope.write_paths.join(', ')}`)),
+      ...subject.packages.flatMap(pkg => [
+        line(`Package ${pkg.package_id}`, `${pkg.root}; setup ${pkg.setup_digest}`),
+        line(`${pkg.package_id} provider and models`, pkg.summary.provider ? JSON.stringify(pkg.summary.provider) : 'No separate provider configuration'),
+        line(`${pkg.package_id} allowed paths`, pkg.summary.allowed_paths),
+        line(`${pkg.package_id} protected paths`, pkg.summary.protected_paths),
+        ...pkg.summary.commands.map(command => line(`${pkg.package_id} positive probe`, `${JSON.stringify(command.argv)} in ${command.cwd}, timeout ${command.timeout_seconds}s`)),
+        line(`${pkg.package_id} negative probe`, `${JSON.stringify(pkg.summary.negative_control.argv)}; expected exit ${pkg.summary.negative_control.expected_exit_code}`),
+      ]),
+      { label: 'Complete frozen team and setup proposals', value: JSON.stringify(subject) },
+      line('Boundary', 'Each package still needs successful activation probes and a separate scoped work AUTHORIZE. Acceptance and external actions are not granted.'),
     ] };
   }
   if (operation === 'authorize') {
@@ -185,7 +206,7 @@ async function ttyFallbackCommand(root, operation, args) {
   return Object.keys(payload).length ? `${base} --input ${shellQuote(JSON.stringify(payload))}` : base;
 }
 
-export async function humanDecision(root, operation, args, channel) {
+export async function humanDecision(root, operation, args, channel, displayedSubjectDigest = null) {
   if (!Object.hasOwn(humanOperations, operation)) throw new ControlError('INVALID_INPUT', `${operation} is not a human decision`);
   // The policy is read before anything is settled: under tty-only a request that
   // is still pending from an earlier policy is thrown away rather than carried
@@ -197,6 +218,12 @@ export async function humanDecision(root, operation, args, channel) {
   // a repeated call reports the finished decision instead of asking again.
   await settleHumanDecisions(root, policy).catch(() => []);
   if (channel === 'interactive-tty') {
+    if (operation === 'team_setup_authorize') {
+      if (args.confirm !== 'AUTHORIZE') throw new ControlError('CONFIRMATION_REQUIRED', 'Type AUTHORIZE at your terminal.');
+      const subject = await teamSetupSubject(root, channel);
+      if (displayedSubjectDigest !== jsonDigest(subject)) throw new ControlError('CONFIRMATION_STALE', 'The team or setup differs from what was displayed in the terminal. Nothing further was approved.');
+      return authorizeTeamSetupsFrozen(root, subject, channel);
+    }
     if (operation === 'team_authorize') {
       if (args.confirm !== 'AUTHORIZE') throw new ControlError('CONFIRMATION_REQUIRED', 'Type AUTHORIZE at your terminal.');
       return authorizeTeamFrozen(root, await teamApprovalSubject(root), channel);
@@ -228,5 +255,7 @@ export async function humanDecision(root, operation, args, channel) {
     throw new ControlError('CONFIRMATION_REQUIRED', `this is a human decision; repeat it with confirm set to ${humanOperations[operation]}`);
   }
   const frozen = await freezeDecision(root, operation, itemId, args);
-  return requestConfirmation(root, operation, itemId, args, frozen.decision, frozen.summary);
+  return requestConfirmation(root, operation, itemId,
+    operation === 'team_setup_authorize' ? { ...args, manifest_digest: jsonDigest(frozen.decision.subject) } : args,
+    frozen.decision, frozen.summary);
 }

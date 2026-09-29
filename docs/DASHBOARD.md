@@ -388,21 +388,21 @@ past the agent roster, configuration form or evidence tables.
 
 Example:
 
-1. The team card asks you to type `AUTHORIZE` for the named builders/reviewers.
-2. The notes package and CSV package each show a setup card. Read the paths,
-   model choices, positive checks and negative check; type `APPROVE` separately.
-3. Activation runs the approved disposable checks. It does not authorize edits.
-4. Each work authorization appears on the same page; type `AUTHORIZE` after
+1. After the assistant prepares both setups, select **Prepare combined review**.
+   One card shows the team and both package setups. Read the paths, models,
+   positive checks and negative checks; type `AUTHORIZE` once.
+2. Activation runs each approved setup's disposable checks. It does not
+   authorize edits. A failed check blocks that package.
+3. Each work authorization appears on the same page; type `AUTHORIZE` after
    reading its allowed paths, budget and expiry.
-5. Watch the package bars and overall progress as already-authorized work runs.
+4. Watch the package bars and overall progress as already-authorized work runs.
 
 ```mermaid
 flowchart LR
-  A[Open main dashboard] --> B[Authorize team]
-  B --> C[Approve each package setup]
-  C --> D[Activation checks]
-  D --> E[Authorize each work package]
-  E --> F[Run and inspect progress]
+  A[Open main dashboard] --> B[One team and setups decision]
+  B --> C[Activation checks for each package]
+  C --> D[Authorize each ready work package]
+  D --> E[Run and inspect progress]
 ```
 
 A card is bound to its registered package and exact displayed proposal. Changed

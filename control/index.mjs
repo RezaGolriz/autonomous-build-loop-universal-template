@@ -67,7 +67,8 @@ async function operate(root, operation, args, context) {
     switch (operation) {
       case 'team_configure': return await teamConfigure(root, args);
       case 'team_status': return await teamStatus(root);
-      case 'team_authorize': return await humanDecision(root, operation, args, humanChannel(context));
+      case 'team_authorize':
+      case 'team_setup_authorize': return await humanDecision(root, operation, args, humanChannel(context), context?.displayed_subject_digest ?? null);
       case 'team_verify': return await verifyMemberReadiness(root, args.member_id);
       case 'package_add': return await packageAdd(root, args);
       case 'package_list': return await packageList(root);

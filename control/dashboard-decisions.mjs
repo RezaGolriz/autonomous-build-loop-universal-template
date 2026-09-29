@@ -8,6 +8,7 @@ import { verifyApproval, verifyHostConfiguration } from './approval-store.mjs';
 import { verifyPlanForApproval } from './setup.mjs';
 import { listPendingConfirmations, recordConfirmation, requestDigest } from './confirm.mjs';
 import { settleHumanDecisions } from './human-ops.mjs';
+import { verifyTeamBinding } from './team.mjs';
 
 export async function decisionTarget(root, packageId = '', specDigest = '') {
   if (!packageId) {
@@ -79,7 +80,24 @@ export async function dashboardDecisions(root) {
       notices.push(`${binding.label}: ${error.message}`);
     }
   }
-  return { entries, notices };
+  const batches = entries.filter(entry => entry.kind === 'operation' && !entry.target.package_id && entry.request.operation === 'team_setup_authorize');
+  let batch = null;
+  if (batches.length) {
+    const { teamSetupSubject } = await import('./team-setup-approval.mjs');
+    const live = await teamSetupSubject(root).catch(() => null);
+    if (live) batch = batches.find(entry => jsonDigest(live) === jsonDigest(entry.request.decision?.subject)) ?? null;
+  }
+  const teamApproved = Boolean(await verifyTeamBinding(root).catch(() => null));
+  const covered = new Set((batch?.request.decision?.subject?.packages ?? []).map(pkg => `${pkg.package_id}:${pkg.approval_id}`));
+  if (batches.length && !batch) notices.push('A combined team-and-setup review is stale. Prepare a fresh combined review before confirming it.');
+  return { entries: entries.filter(entry => {
+    if (entry === batch) return true;
+    if (entry.kind === 'operation' && entry.request.operation === 'team_setup_authorize') return false;
+    if (batch && entry.kind === 'setup' && covered.has(`${entry.target.package_id}:${entry.request.approval_id}`)) return false;
+    if (teamApproved && entry.kind === 'operation' && !entry.target.package_id && entry.request.operation === 'team_authorize') return false;
+    if (batch && entry.kind === 'operation' && !entry.target.package_id && entry.request.operation === 'team_authorize') return false;
+    return true;
+  }), notices };
 }
 
 export async function confirmDashboardDecision(root, fields) {

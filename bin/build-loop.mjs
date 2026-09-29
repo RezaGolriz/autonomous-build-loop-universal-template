@@ -6,16 +6,17 @@ import { dispatch, operations, requestApproval } from '../control/index.mjs';
 import { approvalSummary, recordTrustedApproval } from '../control/approval.mjs';
 import { checkExitCode } from '../control/check.mjs';
 import { tickExitCode } from '../control/tick.mjs';
-import { resolveRoot } from '../control/common.mjs';
+import { jsonDigest, publicError, resolveRoot } from '../control/common.mjs';
 import { verifyPlanForApproval } from '../control/setup.mjs';
 import { rotateControlPageToken, serveControlPage, stopControlPage } from '../control/control-page.mjs';
 import { REVIEW_NOT_ISOLATED, recordedReview } from '../control/chat.mjs';
 import { teamApprovalSubject } from '../control/team-approval.mjs';
+import { teamSetupSubject } from '../control/team-setup-approval.mjs';
 
 // Human-only decisions. Each needs its own literal word, typed at an
 // interactive terminal. An explicit input file is not a person: it returns a
 // pending request and a local confirmation link instead of completing.
-const confirmations = { accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE', team_authorize: 'AUTHORIZE' };
+const confirmations = { accept: 'ACCEPT', authorize: 'AUTHORIZE', promote: 'PROMOTE', release: 'RELEASE', team_authorize: 'AUTHORIZE', team_setup_authorize: 'AUTHORIZE' };
 
 function usage(message = '') {
   if (message) process.stderr.write(`${message}\n`);
@@ -84,9 +85,15 @@ else if (operation === 'approve') {
     result = await dispatch(root, operation, input, { channel: 'cli-input' });
   } else {
     process.stdout.write(`Project root: ${ttyText(root)}\nOperation: ${ttyText(operation)}\nThis is a human decision. It is recorded with the local time and the channel you used.\n`);
-    if (operation === 'team_authorize') {
-      const subject = await teamApprovalSubject(await resolveRoot(root));
-      process.stdout.write(`Exact team proposal:\n${ttyText(JSON.stringify(subject, null, 2))}\n`);
+    let displayedSubject = null;
+    if (operation === 'team_authorize' || operation === 'team_setup_authorize') {
+      try {
+        root = await resolveRoot(root);
+        displayedSubject = operation === 'team_setup_authorize'
+          ? await teamSetupSubject(root, 'interactive-tty')
+          : await teamApprovalSubject(root);
+        process.stdout.write(`Exact ${operation === 'team_setup_authorize' ? 'team and setup proposals' : 'team proposal'}:\n${ttyText(JSON.stringify(displayedSubject, null, 2))}\n`);
+      } catch (error) { result = publicError(error); }
     }
     if (operation === 'accept') {
       // Said before the word is asked for: a review by the same chat is not independent.
@@ -95,12 +102,14 @@ else if (operation === 'approve') {
       const review = resolved && state ? await recordedReview(resolved, state.work_item_id).catch(() => null) : null;
       if (review && !review.review_isolated) process.stdout.write(`Warning: ${REVIEW_NOT_ISOLATED}. The REVIEW node was done by the chat that built the change, not by a separate reviewer.\n`);
     }
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await rl.question(`Type ${word} to confirm: `);
-    rl.close();
-    result = answer === word
-      ? await dispatch(root, operation, operation === 'promote' ? input : { ...input, confirm: word }, { channel: 'interactive-tty' })
-      : { ok: false, error: { code: 'CONFIRMATION_MISMATCH', message: `confirmation phrase did not match; nothing was ${{ accept: 'accepted', promote: 'promoted', release: 'released', authorize: 'authorized' }[operation]}` } };
+    if (!result) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await rl.question(`Type ${word} to confirm: `);
+      rl.close();
+      result = answer === word
+        ? await dispatch(root, operation, operation === 'promote' ? input : { ...input, confirm: word }, { channel: 'interactive-tty', ...(operation === 'team_setup_authorize' ? { displayed_subject_digest: jsonDigest(displayedSubject) } : {}) })
+        : { ok: false, error: { code: 'CONFIRMATION_MISMATCH', message: `confirmation phrase did not match; nothing was ${{ accept: 'accepted', promote: 'promoted', release: 'released', authorize: 'authorized', team_authorize: 'authorized', team_setup_authorize: 'authorized' }[operation]}` } };
+    }
   }
 } else if (operation === 'discard') {
   // Triage is a deliberate call rather than a typed confirmation, but the

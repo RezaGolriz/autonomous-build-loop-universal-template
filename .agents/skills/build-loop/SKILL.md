@@ -224,13 +224,16 @@ The control page, step by step:
 Read docs/TEAMS.md for team requests. Ask whether packages should run
 sequentially (default) or in parallel, and which exact models, providers,
 roles, data scopes and time limits the person permits. team_configure writes
-a paused proposal; team_authorize returns a human confirmation link. Never
-open or submit that link yourself.
+a paused proposal. Prepare every registered package setup, request each setup
+approval, then call team_setup_authorize on the controller for one frozen
+team-and-setup decision. Never open or submit its link yourself. Each package
+still needs its own activation checks and separate work AUTHORIZE. The older
+team_authorize and per-package APPROVE route remains available.
 
 Start `serve` on the team controller before asking for approvals. Hand its
 single-use link to the person; never open it yourself. The main Decisions panel
-collects team decisions, registered package setup approvals (typed APPROVE),
-and child work authorizations (typed AUTHORIZE). Use package_control for
+collects the combined team/setup decision (typed AUTHORIZE), older individual
+setup approvals (typed APPROVE), and child work authorizations (typed AUTHORIZE). Use package_control for
 request_approval and authorize so their returned links point to the main page.
 A setup approval grants no activation or work authorization. Standalone local
 pages remain the fallback when the main page is not running.
@@ -238,7 +241,9 @@ pages remain the fallback when the main page is not running.
 Register separate roots with package_add. prepare=true creates an empty
 folder, not a repository copy. Address registered children by package_id
 through package_control. Each keeps its own setup approval, activation and
-READY authorization. API children configure and approve the same team locally;
+READY authorization. API children configure the same team locally; the combined
+decision approves it there when its setup is included. With the older separate
+route, each API child still needs its own team approval;
 team_verify is an explicit provider request, not a free status check. Keys
 belong in local sensitive settings or named environment variables, never chat.
 
