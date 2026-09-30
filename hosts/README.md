@@ -19,8 +19,9 @@ Installing a Codex skill does not install a Codex CLI account. Run doctor to
 check the selected provider on the machine that will execute it.
 
 The current package and Claude Desktop extension target macOS and Linux. Native
-Windows is unsupported and unvalidated because the control engine depends on
-Bash, Unix tools, and Unix process behavior.
+Windows is unsupported because the control engine depends on Bash, Unix tools,
+and Unix process behavior. Windows via WSL2 is experimental; see
+[Windows (WSL2)](../docs/INSTALLATION.md#windows-wsl2).
 
 A worker invocation can send its bounded node input, project content, exact
 change, or review evidence to the selected model provider. Keep secrets out of

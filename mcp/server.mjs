@@ -1,5 +1,9 @@
 // Transport only: the control module owns operations, policy, and state.
-export function createHandler({ root, operations, dispatch, requestApproval, version = '0.6.3', notify = () => {} }) {
+// `unavailable` ({ code, message, docs }) turns the server into one that only
+// explains why it cannot run here (native Windows, or a WSL project on a
+// Windows drive): initialize and every tool call return that as a JSON-RPC
+// error, so the client shows the message instead of a crashed server.
+export function createHandler({ root, operations, dispatch, requestApproval, version = '0.6.3', notify = () => {}, unavailable = null }) {
   let initialized = false;
   const protocols = ['2025-11-25', '2025-06-18'];
   const approval = { description: 'Open a local human review of the current setup plan. Return the link to the user; never approve it yourself.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } };
@@ -17,6 +21,7 @@ export function createHandler({ root, operations, dispatch, requestApproval, ver
     const params = message.params ?? {};
     if (!params || typeof params !== 'object' || Array.isArray(params)) return notification ? null : error(message.id, -32602, 'Parameters must be an object');
     if (notification) return null;
+    if (unavailable && message.method !== 'ping') return { jsonrpc: '2.0', id: message.id, error: { code: -32001, message: unavailable.message, data: { code: unavailable.code, ...(unavailable.docs ? { docs: unavailable.docs } : {}) } } };
     let result;
     if (message.method === 'initialize') {
       if (initialized) return error(message.id, -32600, 'Already initialized');

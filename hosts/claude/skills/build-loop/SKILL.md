@@ -8,6 +8,7 @@ description: Operate Universal Build Loop from Claude Desktop through its projec
 Use the build-loop MCP tools supplied by the local extension. The server is
 bound to user_config.project_root and must not accept a root override. Opening
 project files or reading CLAUDE.md alone is not an executable control bridge.
+On PLATFORM_UNSUPPORTED or ROOT_ON_WINDOWS_DRIVE, tell the person in plain words to use WSL2 with the project in the Linux file system (docs/INSTALLATION.md#windows-wsl2); do not work around it.
 
 For first use, call loop_inspect and loop_doctor, then loop_prepare when active
 configuration is absent. Preparation must not run target commands. Present the

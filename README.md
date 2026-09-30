@@ -2,7 +2,7 @@
 
 Build Loop turns a coding request into a controlled, six‑phase run: **DEFINE → DESIGN → EXECUTE → REVIEW → VALIDATE → HANDOVER**. You talk to it in plain language from Claude Desktop or the Codex app. It plans, asks for your approval, then works in small, reviewable steps.
 
-Runs on macOS and Linux. Native Windows is not supported. WSL has not been validated.
+Runs on macOS and Linux. On Windows it runs inside WSL2 (experimental); native Windows is not supported.
 
 ---
 
@@ -37,6 +37,8 @@ available. See [Teams](docs/TEAMS.md) for the supported combinations.
 
 - macOS or Linux with **Bash 3.2+, `jq`, Git and Perl**. These run the workflow
   and approved project checks, even when the agents use an API.
+- Windows: via WSL2, see [Installation](docs/INSTALLATION.md#windows-wsl2).
+  Keep the package and your projects in the Linux file system, not under `/mnt/c`.
 - **Node.js 22+** for Codex, direct MCP and the CLI. **npm and zip** are needed
   to build the installation files once. The Desktop extension supplies Node.
 - Credentials for the worker type you choose. A CLI login and an API key are
@@ -267,7 +269,7 @@ costs nothing. Where these ideas come from:
 | A control page to watch the project and type decisions, also from a phone on your private network | Implemented — `serve`; without it (and without `confirmation_page`), `dashboard` opens the older read‑only page that stops after 30 minutes |
 | Doing the node work inside the chat instead of a separate CLI | Implemented — `configure` with `host` `chat` and an explicit `review_host`, then `chat_next` and `chat_submit` (with `node_id` and `attempt_id`); the review is independent only when `review_host` is another tool |
 | Merge, push, deploy, release, device flashing, live migration | Not automated, by design — human actions |
-| Native Windows | Not supported; WSL has not been validated |
+| Native Windows | Not supported; Windows via WSL2: experimental (see [docs](docs/INSTALLATION.md#windows-wsl2)) |
 
 ## Work on several topics
 

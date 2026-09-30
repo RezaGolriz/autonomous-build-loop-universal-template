@@ -14,6 +14,7 @@ skills/build-loop copy.
 
 Pass the target project as an explicit absolute --root. Node.js 22 or newer plus
 Bash 3.2+, jq, Git, Perl, and standard Unix tools are control prerequisites.
+On Windows, run everything inside WSL2 with the project in the Linux file system; on PLATFORM_UNSUPPORTED or ROOT_ON_WINDOWS_DRIVE, point the person to docs/INSTALLATION.md#windows-wsl2 and do not work around it.
 
 Do not claim that the skill automatically discovers the user's intended project
 root. Resolve it from the current Codex project and state it when ambiguous.

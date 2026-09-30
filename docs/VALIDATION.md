@@ -40,7 +40,10 @@ browser or interactive-terminal action; the MCP API has no approval boolean.
 - Claude Desktop UI installation was not verified. App automation did not
   provide a usable installation flow. Protocol and package tests do not replace
   that evidence. No user app configuration or visibility setting was changed.
-- Native Windows is unsupported and untested.
+- Native Windows is unsupported and untested. It fails fast with
+  `PLATFORM_UNSUPPORTED`. Windows via WSL2 has not yet been run on a real WSL2
+  machine; the platform guard and the Windows-drive check are covered by
+  `tests/platform.test.mjs` with simulated inputs only.
 
 ## Independent review
 

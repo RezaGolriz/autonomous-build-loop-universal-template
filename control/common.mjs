@@ -3,6 +3,7 @@ import { constants, promises as fs } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { assertPlatformSupported, assertRootNotOnWindowsDrive, detectPlatform } from './platform.mjs';
 
 export class ControlError extends Error {
   constructor(code, message, details = undefined) {
@@ -146,10 +147,14 @@ export function safeRelativeArray(value, label, min = 0) {
 
 export async function resolveRoot(root) {
   stringValue(root, 'root', { max: 4096 });
+  const platform = assertPlatformSupported(detectPlatform());
   const stat = await fs.lstat(root).catch(() => null);
   if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new ControlError('INVALID_ROOT', 'root must be an existing non-symlink directory');
   const resolved = await fs.realpath(root);
   if (resolved === path.parse(resolved).root || resolved === await fs.realpath(os.homedir())) throw new ControlError('DANGEROUS_ROOT', 'refusing a filesystem root or the user home directory as a build-loop project');
+  // Under WSL, a Windows drive does not keep the link and permission rules
+  // the locks and records below rely on.
+  assertRootNotOnWindowsDrive(resolved, platform);
   return resolved;
 }
 

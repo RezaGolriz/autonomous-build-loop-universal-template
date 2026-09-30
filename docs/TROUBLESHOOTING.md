@@ -242,6 +242,26 @@ for project status and include the job ID. The new chat can inspect durable
 state; it should not start a duplicate job just because it lacks the previous
 conversation transcript.
 
+## PLATFORM_UNSUPPORTED
+
+The CLI or the MCP server was started on native Windows (PowerShell, Command
+Prompt, Git Bash or a Windows copy of Node). Build Loop runs on Windows only
+inside WSL2. Install WSL2 (`wsl --install`), install Node 22, git, jq and perl
+inside it, clone the package into the Linux file system (for example
+`~/projects`), and start it from there. For Claude Desktop or Codex on Windows,
+launch the server through `wsl.exe`. Steps and config snippets:
+[Windows (WSL2)](INSTALLATION.md#windows-wsl2).
+
+## ROOT_ON_WINDOWS_DRIVE
+
+Inside WSL, the project folder (or the package) is on a Windows drive, such as
+`/mnt/c/Users/<name>`. That drive type (DrvFs) does not keep the file permission,
+hard-link and exclusive-create rules the loop uses for its locks and records,
+and it is slow, so the loop refuses it. Move or clone the project into the
+Linux file system, for example `~/projects/my-app`, and point `--root` or the
+MCP `--root` argument there. `bootstrap/check-prerequisites.sh <project>`
+reports the same problem before you start.
+
 ## The project root is wrong
 
 The MCP server is project-bound. Stop that connection and configure a separate

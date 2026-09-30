@@ -217,7 +217,10 @@ address, for example `http://192.0.2.10:8765/`, so they open on your phone
 inside your home network or a VPN such as WireGuard or Tailscale. A VPN is one
 option, not a requirement; your home Wi‑Fi works too. The pages are plain web
 traffic (HTTP, not HTTPS): never make them reachable from the internet, and
-never forward a router port to them. After changing the file, restart the
+never forward a router port to them. Running inside WSL2 on Windows? The phone
+reaches Windows, not WSL: see
+[the control page from Windows](INSTALLATION.md#the-control-page-from-windows).
+After changing the file, restart the
 control page: `build-loop serve --root <project> --stop`, then
 `build-loop serve --root <project>`. What the safety checks do and do not
 promise: [The control page](DASHBOARD.md#the-control-page).

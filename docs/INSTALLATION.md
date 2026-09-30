@@ -13,7 +13,7 @@ The package provides the tools; `--root` and `project_root` select the project t
 
 ## 1. Prerequisites
 
-**Control machine (where the loop runs):** macOS or Linux. Native Windows is **not supported**. WSL and a Windows-to-WSL Desktop connection have not been validated here.
+**Control machine (where the loop runs):** macOS or Linux. Native Windows is **not supported**: the CLI and the MCP server stop at once with `PLATFORM_UNSUPPORTED`. On Windows, use WSL2 — see [Windows (WSL2)](#windows-wsl2). WSL2 support is experimental.
 
 Required on the control machine:
 
@@ -207,6 +207,103 @@ Install and authenticate the Codex CLI or Claude Code CLI yourself, then re-run 
 
 **Stale behaviour after editing the source.**
 Re-run `npm run bundle` and reinstall the bundle. Hosts run the installed copy.
+
+---
+
+<a id="windows-wsl2"></a>
+
+## Windows (WSL2)
+
+**Status:** experimental. Tested on: <to be filled by the maintainer after a real WSL2 run>; until then treat Windows support as experimental.
+
+WSL2 is a real Linux system that Microsoft builds into Windows. Build Loop runs inside it like on any Linux computer. Native Windows (PowerShell, Git Bash, MSYS) is not supported.
+
+### Steps
+
+1. **Install WSL2 with Ubuntu.** In PowerShell as administrator: `wsl --install`. Restart when asked, then open **Ubuntu** from the Start menu and create your Linux user.
+2. **Install the tools inside WSL** (in the Ubuntu window):
+
+   ```bash
+   sudo apt update && sudo apt install -y git jq perl zip
+   ```
+
+   Then install Node 22 or newer inside WSL (for example with `nvm`, or from nodejs.org). The Windows copy of Node does not count.
+3. **Clone into the Linux file system**, not onto a Windows drive:
+
+   ```bash
+   mkdir -p ~/projects && cd ~/projects
+   git clone <repository-url> build-loop
+   ```
+
+   Keep your target projects there too, for example `~/projects/my-app`. Folders under `/mnt/c/...` are refused with `ROOT_ON_WINDOWS_DRIVE`: that drive type (DrvFs) does not keep the permission and link rules the loop relies on for safe locks and records, and it is slow.
+4. **Check the prerequisites** from inside WSL:
+
+   ```bash
+   ~/projects/build-loop/bootstrap/check-prerequisites.sh ~/projects/my-app
+   ```
+
+   It prints `WSL2 detected` and ends with `PASS`, or names what is missing.
+5. **Connect your app** (see the two setups below).
+6. **Open the control page** in your Windows browser (see below).
+
+### Setup A: Claude Desktop or Codex on Windows, loop inside WSL
+
+The `.mcpb` extension does not install on Windows. Use the direct MCP route (Section 5) and let `wsl.exe` start the server inside WSL. Inside WSL, find the three absolute paths first:
+
+```bash
+command -v node          # e.g. /home/<user>/.nvm/versions/node/v22.x/bin/node
+readlink -f ~/projects/build-loop/bin/build-loop-mcp.mjs
+readlink -f ~/projects/my-app
+```
+
+Use the absolute Node path: `wsl.exe` starts the command without your shell setup, so a bare `node` is often not found. `wsl -l -v` in PowerShell shows the distribution name (here `Ubuntu`).
+
+**Claude Desktop** (Settings > Developer > Edit Config, `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "build-loop": {
+      "command": "wsl.exe",
+      "args": [
+        "-d",
+        "Ubuntu",
+        "--",
+        "/home/<user>/.nvm/versions/node/v22.x/bin/node",
+        "/home/<user>/projects/build-loop/bin/build-loop-mcp.mjs",
+        "--root",
+        "/home/<user>/projects/my-app"
+      ]
+    }
+  }
+}
+```
+
+**Codex** (in PowerShell on Windows):
+
+```powershell
+codex mcp add build-loop -- wsl.exe -d Ubuntu -- /home/<user>/.nvm/versions/node/v22.x/bin/node /home/<user>/projects/build-loop/bin/build-loop-mcp.mjs --root /home/<user>/projects/my-app
+```
+
+API keys for API workers must exist inside WSL. `wsl.exe` does not pass Windows environment variables through unless they are listed in `WSLENV`.
+
+If the server was started on native Windows by mistake (a Windows `node` path), the app shows the `PLATFORM_UNSUPPORTED` message instead of tools.
+
+### Setup B: everything inside WSL
+
+Work in a WSL terminal, or in VS Code connected with **Remote - WSL**. Install and sign in to the Codex CLI or Claude Code CLI inside WSL, then follow Sections 3, 5 and 6 exactly as on Linux. This is the simplest setup.
+
+### The control page from Windows
+
+The control page listens on `127.0.0.1` inside WSL. WSL2 forwards local addresses to Windows, so the link opens in your Windows browser. Open it exactly as printed: the page only answers to the address in its link, so rewriting `127.0.0.1` to `localhost` gives `Invalid Host.`
+
+**Phone access (optional).** The phone must reach Windows, and Windows must pass the port on to WSL. In `.loop/control/policy.json` set `listen` to `0.0.0.0`, `advertise` to the Windows computer's LAN address, and a fixed `port` (see [Configuration](CONFIGURATION.md)). Then, in PowerShell as administrator, forward that port to WSL (`hostname -I` inside WSL prints its address; it can change after a restart):
+
+```powershell
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=8765 connectaddress=<WSL-address> connectport=8765
+```
+
+You may also need a Windows firewall rule for that port. With WSL's mirrored networking mode (`networkingMode=mirrored` in `.wslconfig`) the forward is not needed. Keep the page on your private network or VPN only.
 
 ---
 

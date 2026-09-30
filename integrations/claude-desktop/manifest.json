@@ -4,7 +4,7 @@
   "display_name": "Build Loop",
   "version": "0.8.4",
   "description": "Set up and control an evidence-backed local development loop from a conversation.",
-  "long_description": "Controls approved local development work through chat. Supports existing CLI workers and separately configured API agents. Requires Bash, jq, Git and Perl for the workflow engine. Select one explicit project folder. Optional API keys are separate from a Claude Desktop subscription; never paste them into chat or project files. MCP does not create a native Desktop subagent panel.",
+  "long_description": "Controls approved local development work through chat. Supports existing CLI workers and separately configured API agents. Requires Bash, jq, Git and Perl for the workflow engine. Select one explicit project folder. Optional API keys are separate from a Claude Desktop subscription; never paste them into chat or project files. MCP does not create a native Desktop subagent panel. Native Windows is not supported; on Windows run the loop inside WSL2 and connect it with a direct MCP entry that starts wsl.exe (see docs/INSTALLATION.md#windows-wsl2).",
   "author": {
     "name": "Build Loop contributors"
   },

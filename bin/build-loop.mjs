@@ -12,6 +12,17 @@ import { rotateControlPageToken, serveControlPage, stopControlPage } from '../co
 import { REVIEW_NOT_ISOLATED, recordedReview } from '../control/chat.mjs';
 import { teamApprovalSubject } from '../control/team-approval.mjs';
 import { teamSetupSubject } from '../control/team-setup-approval.mjs';
+import { platformProblem } from '../control/platform.mjs';
+
+// First of all: native Windows is refused with a short way forward (WSL2).
+{
+  const problem = platformProblem();
+  if (problem) {
+    process.stderr.write(`${problem.message}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: false, error: problem })}\n`);
+    process.exit(69);
+  }
+}
 
 // Human-only decisions. Each needs its own literal word, typed at an
 // interactive terminal. An explicit input file is not a person: it returns a

@@ -19,9 +19,9 @@ configure, or authenticate the worker CLI. Universal Build Loop does not install
 target dependencies or create provider accounts.
 
 The current implementation targets macOS and Linux; consult the validation
-matrix for environments actually tested. Native Windows is unsupported and
-unvalidated because the control path depends on Bash, Unix tools, and Unix
-process behavior.
+matrix for environments actually tested. Native Windows is unsupported because the
+control path depends on Bash, Unix tools, and Unix process behavior. Windows via
+WSL2 is experimental; see [Windows (WSL2)](INSTALLATION.md#windows-wsl2).
 
 ## Option A: start in Codex
 
