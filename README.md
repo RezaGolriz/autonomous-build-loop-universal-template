@@ -507,3 +507,7 @@ The original shell entry point remains fully supported alongside the plugin, inc
 - [docs/examples/README.md](docs/examples/README.md) — worked examples
 - [docs/examples/loops/README.md](docs/examples/loops/README.md) — ten step‑by‑step walkthroughs, from a five‑minute dry run to the full cycle
 - [docs/SOURCES.md](docs/SOURCES.md) — sources and further reading, and how this template relates to them
+
+## License
+
+MIT — see [LICENSE](LICENSE).
