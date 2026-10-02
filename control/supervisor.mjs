@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deleteSchedulerRecord, readSchedulerRecord, saveSchedulerRecord, schedulerRecordExists } from './scheduler-store.mjs';
 import { ControlError, assertControlPath, atomicJson, exists, intValue, jsonDigest, nonce, now, readJson } from './common.mjs';
-import { childReadiness, launchIssues, packageAdd, packageList, readStore, withShortLock } from './package-store.mjs';
+import { assertCycleDirectories, childReadiness, cycleBase, cycleFile, launchIssues, packageAdd, packageList, readCycle, readStore, withShortLock, workItemAcknowledged } from './package-store.mjs';
 import { readApiObservation } from '../runtimes/api-observability.mjs';
 import { loadTeam, teamStatus, verifyTeamBinding } from './team.mjs';
 import { launchJob, managedEnvironment, setIntent, status as childStatus } from './jobs.mjs';
@@ -19,13 +19,15 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function paths(root, create = false) {
   const { scheduler } = await assertControlPath(root);
-  const dir = path.join(scheduler, 'supervisor');
+  const { cycle } = await readCycle(root, scheduler);
+  const dir = path.join(cycleBase(scheduler, cycle), 'supervisor');
   if (create) await fs.mkdir(path.join(dir, 'jobs'), { recursive: true });
+  await assertCycleDirectories(scheduler, cycle);
   for (const part of [scheduler, dir, path.join(dir, 'jobs')]) {
     const info = await fs.lstat(part).catch(() => null);
     if (info && (!info.isDirectory() || info.isSymbolicLink() || await fs.realpath(part) !== part)) throw new ControlError('UNSAFE_CONTROL_PATH', 'Unsafe supervisor directory.');
   }
-  return { dir, current: path.join(dir, 'current.json'), index: path.join(dir, 'requests.json'), lock: path.join(dir, 'run.lock'), mutation: path.join(dir, 'mutation.lock'), claim: path.join(dir, 'claim.lock'), lease: path.join(dir, 'lease.json') };
+  return { cycle, scheduler, dir, current: path.join(dir, 'current.json'), index: path.join(dir, 'requests.json'), lock: path.join(dir, 'run.lock'), mutation: path.join(dir, 'mutation.lock'), claim: path.join(dir, 'claim.lock'), lease: path.join(dir, 'lease.json') };
 }
 const jobPath = (p, id) => { if (!idPattern.test(id)) throw new ControlError('INVALID_INPUT', 'Invalid supervisor job ID.'); return path.join(p.dir, 'jobs', `${id}.json`); };
 const save = saveSchedulerRecord;
@@ -187,6 +189,7 @@ async function removeLease(root, p, job) {
 export async function supervisorStatus(root, args = {}) {
   const p = await paths(root); const job = await currentJob(root, p, args.job_id);
   const team = await teamStatus(root); const store = await readStore(root);
+  const cycle = p.cycle;
   const packages = [];
   for (const pkg of store.packages) {
     const child = await childReadiness(pkg.root);
@@ -210,7 +213,7 @@ export async function supervisorStatus(root, args = {}) {
       blocker: observation?.blocker ?? (child.problems.map(x => x.message).join('; ') || null),
       evidence_refs: Object.values(gates).flatMap(g => g.evidence_ids), revision: null });
   }
-  return { ok: true, job, configured: team.configured, mode: team.mode ?? 'sequential', status: job && running.includes(job.status) && !alive(job.pid) ? 'RECOVERY_REQUIRED' : job?.status ?? 'NOT_STARTED',
+  return { ok: true, job, cycle, configured: team.configured, mode: team.mode ?? 'sequential', status: job && running.includes(job.status) && !alive(job.pid) ? 'RECOVERY_REQUIRED' : job?.status ?? 'NOT_STARTED',
     max_active_packages: team.limits?.max_active_packages ?? 1, max_active_agents: team.limits?.max_active_agents ?? 2,
     members: (team.members ?? []).map(m => ({ ...m, readiness: m.readiness?.state, capability_note: m.readiness?.detail })),
     progress_unit: 'gates', packages, supervisor_alive: alive(job?.pid) };
@@ -385,6 +388,38 @@ async function setSupervisorIntent(root, args, desired) {
   });
 }
 export const supervisorPause = (root, args = {}) => setSupervisorIntent(root, args, 'PAUSED');
+
+// Close a finished cycle so a new package set can be registered. Only a
+// cancelled or completed job without a live worker, lease or running child
+// closes, or one whose every work item a person handed over or accepted. Its
+// records stay where they are. The closed cycle's unfinished work items are
+// remembered, so registering them again in a later cycle is refused rather
+// than given a fresh budget. This grants nothing: every new package still
+// needs its own setup approval and work AUTHORIZE.
+export async function supervisorCloseCycle(root) {
+  await assertNotHeld(root, 'mcp-user', 'supervisor');
+  const p = await paths(root);
+  return withShortLock(p.mutation, 'supervisor-close-cycle', async () => {
+    const job = await currentJob(root, p);
+    if (!job) throw new ControlError('NO_SUPERVISOR', 'This cycle has no supervisor job; register packages here and start one instead.');
+    if (running.includes(job.status) || alive(job.pid) || job.packages.some(x => x.running)) throw new ControlError('SUPERVISOR_ACTIVE', 'Cancel the job and wait until it and its children have stopped.', { job_id: job.job_id });
+    if (await schedulerRecordExists(root, p.lease)) throw new ControlError('SUPERVISOR_RECOVERY_REQUIRED', 'The job still holds its lease; recover it first.', { job_id: job.job_id });
+    const specs = job.package_specs ?? [];
+    const finished = ['CANCELLED', 'COMPLETED'].includes(job.status) || await effectiveDesired(root, p, job) === 'CANCELLED';
+    if (!finished) {
+      for (const entry of job.packages) {
+        const spec = specs.find(x => x.package_id === entry.id);
+        if (!spec || !await workItemAcknowledged(spec.root, entry.work_item_id)) throw new ControlError('SUPERVISOR_NOT_FINISHED', 'Cancel the job (final) or hand over every package before closing its cycle.', { job_id: job.job_id, package_id: entry.id });
+      }
+    }
+    const record = await readCycle(root, p.scheduler);
+    if (record.cycle !== p.cycle) throw new ControlError('SUPERVISOR_NOT_CURRENT', 'The cycle changed meanwhile; read the status again.');
+    const closed = { cycle: p.cycle, job_id: job.job_id, status: job.status, closed_at: now(),
+      packages: job.packages.map(entry => ({ package_id: entry.id, root: specs.find(x => x.package_id === entry.id)?.root ?? null, work_item_id: entry.work_item_id ?? null })) };
+    await saveSchedulerRecord(root, cycleFile(p.scheduler), { kind: 'scheduler-cycle', cycle: p.cycle + 1, closed: [...record.closed, closed] });
+    return { ok: true, closed_cycle: p.cycle, cycle: p.cycle + 1, closed_job_id: job.job_id, next: 'Register the new package set with package_add, prepare and approve each package, then start a new supervisor.' };
+  });
+}
 export const supervisorCancel = (root, args = {}) => setSupervisorIntent(root, args, 'CANCELLED');
 
 export async function supervisorResume(root, args = {}, channel = 'mcp-user') {

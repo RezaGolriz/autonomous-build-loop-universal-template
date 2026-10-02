@@ -16,7 +16,7 @@ import { operations, transportChannels, validateOperation } from './schemas.mjs'
 import { readStore } from './package-store.mjs';
 import { teamConfigure, teamStatus } from './team.mjs';
 import { verifyMemberReadiness } from '../runtimes/api-runtime.mjs';
-import { packageAdd, packageList, supervisorStart, supervisorStatus, supervisorPause, supervisorCancel, supervisorResume, supervisorRecover } from './supervisor.mjs';
+import { packageAdd, packageList, supervisorStart, supervisorStatus, supervisorPause, supervisorCancel, supervisorCloseCycle, supervisorResume, supervisorRecover } from './supervisor.mjs';
 
 export { operations };
 
@@ -94,6 +94,7 @@ async function operate(root, operation, args, context) {
       case 'supervisor_status': return await supervisorStatus(root, args);
       case 'supervisor_pause': return await supervisorPause(root, args);
       case 'supervisor_cancel': return await supervisorCancel(root, args);
+      case 'supervisor_close_cycle': return await supervisorCloseCycle(root);
       case 'supervisor_resume': return await supervisorResume(root, args, humanChannel(context));
       case 'supervisor_recover': return await supervisorRecover(root, args);
       case 'options': return loopOptions();

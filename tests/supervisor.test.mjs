@@ -13,7 +13,7 @@ import { authorizeTeamFrozen, teamApprovalSubject } from '../control/team-approv
 import { childReadiness, readStore } from '../control/package-store.mjs';
 import { jsonDigest } from '../control/common.mjs';
 import { readSchedulerRecord, saveSchedulerRecord } from '../control/scheduler-store.mjs';
-import { packageAdd, packagesConflict, planNodeAllowance, reconcileChild, reconcileInterruptedChild, supervisorCancel, supervisorPause, supervisorRecover, supervisorResume, supervisorStart, supervisorStatus } from '../control/supervisor.mjs';
+import { packageAdd, packagesConflict, planNodeAllowance, reconcileChild, reconcileInterruptedChild, supervisorCancel, supervisorCloseCycle, supervisorPause, supervisorRecover, supervisorResume, supervisorStart, supervisorStatus } from '../control/supervisor.mjs';
 
 process.env.BUILD_LOOP_APPROVAL_STORE = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'supervisor-trust-')));
 await fs.chmod(process.env.BUILD_LOOP_APPROVAL_STORE, 0o700);
@@ -107,6 +107,22 @@ test('two isolated documentation packages run in parallel through all six gates'
   assert.equal(accounting.nodes_completed, childRecord.nodes_completed);
   for (const pkg of result.packages) { const state = JSON.parse(await fs.readFile(path.join(pkg.workspace, '.loop', 'state.json')));
     assert.ok(Object.values(state.gates).every(x => x.status === 'PASSED' && x.evidence_ids.length > 0)); }
+
+  // Closing the finished cycle opens a new package set without resetting the
+  // budget of work the closed cycle left unfinished.
+  const closed = await supervisorCloseCycle(root);
+  assert.deepEqual([closed.closed_cycle, closed.cycle, closed.closed_job_id], [1, 2, launched.job.job_id]);
+  assert.equal((await readStore(root)).packages.length, 0, 'a new cycle starts with an empty package set');
+  const fresh = await supervisorStatus(root);
+  assert.equal(fresh.cycle, 2); assert.equal(fresh.job, null);
+  await assert.rejects(() => packageAdd(root, { package_id: 'guide-a', workspace_root: a, budget: { soft_seconds: 300, hard_ceiling_seconds: 600 } }),
+    e => e.code === 'PACKAGE_CYCLE_REUSE', 'an unfinished work item from a closed cycle cannot get a fresh budget');
+  await packageAdd(root, { package_id: 'late', prepare: true, budget: { soft_seconds: 60, hard_ceiling_seconds: 60 } });
+  assert.deepEqual((await readStore(root)).packages.map(x => x.package_id), ['late']);
+  await fs.unlink(path.join(root, '.loop', 'scheduler', 'cycle.json'));
+  assert.equal((await supervisorStatus(root)).cycle, 2, 'a missing local cycle record recovers from its private latest record');
+  await assert.rejects(() => supervisorCloseCycle(root), e => e.code === 'NO_SUPERVISOR');
+  assert.equal((await supervisorStatus(root, { job_id: launched.job.job_id }).catch(e => e)).code, 'SCHEDULER_UNTRUSTED', 'a closed cycle\'s job is history, not current');
 });
 
 test('cancelling an interrupted supervisor stops its owned child and remains final even after pause', { timeout: 120_000 }, async () => {

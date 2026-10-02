@@ -258,6 +258,9 @@ technical input files yourself when a chat assistant prepares them for review.
 - Team proposal: `.loop/control/team.json`; this is signed local state.
 - Team receipt: `.loop/control/team.approval.json`; only the human flow writes it.
 - Registered workspaces: `.loop/scheduler/packages/packages.json` (host-signed).
+- Supervisor cycles: `.loop/scheduler/cycle.json` (host-signed) names the
+  current cycle and the closed ones. Cycle 1 uses the paths below; cycle N
+  uses the same layout under `.loop/scheduler/cycles/N/`.
 - Supervisor jobs: `.loop/scheduler/supervisor/jobs/`; these retain budgets,
   child identities, checkpoints and the original node cap.
 - Each workspace: its own adapter, work item, signed provider configuration,
@@ -277,8 +280,13 @@ node blocks. This is a usage stop threshold, not a guaranteed billing cap.
 The registered package set is frozen after the first supervisor job. Register
 all packages before starting. Automatic dependent launch is currently blocked
 until an explicit integration receipt exists; handover text is not integration.
-For another cycle, deliberately prepare a fresh supervisor setup rather than
-changing the old job's inputs or request ID to reset its limits. The existing
+For another cycle, close the finished one with `supervisor_close_cycle` once
+its job is cancelled or completed (or every package was handed over), then
+register, prepare and approve the new package set and start a new supervisor.
+Closing keeps every record where it is and grants nothing. A work item the
+closed cycle left unfinished cannot be registered again from the same
+workspace, so a new cycle never resets its budget; changing the old job's
+inputs or request ID does not reset limits either. The existing
 single-root backlog workflow remains available for ongoing ordered work.
 
 

@@ -32,8 +32,29 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const oneLine = (value) => value.replace(/[\r\n]+/g, ' ').trim();
 const inside = (outer, inner) => inner === outer || inner.startsWith(`${outer}${path.sep}`);
 
-export function storePaths(scheduler) {
-  const dir = path.join(scheduler, 'packages');
+// Supervisor cycles. One cycle is one package set and at most one supervisor
+// job. Cycle 1 keeps the original paths, so existing projects read unchanged.
+// Closing a finished cycle (supervisorCloseCycle) leaves its signed records in
+// place and gives the next cycle its own package store and supervisor folder.
+export const cycleBase = (scheduler, cycle = 1) => cycle > 1 ? path.join(scheduler, 'cycles', String(cycle)) : scheduler;
+export const cycleFile = scheduler => path.join(scheduler, 'cycle.json');
+export async function readCycle(root, scheduler) {
+  const file = cycleFile(scheduler);
+  if (!await schedulerRecordExists(root, file)) return { kind: 'scheduler-cycle', cycle: 1, closed: [] };
+  const record = await readSchedulerRecord(root, file);
+  if (record.kind !== 'scheduler-cycle' || !Number.isInteger(record.cycle) || record.cycle < 2 || record.cycle > 10000 || !Array.isArray(record.closed)) throw new ControlError('INVALID_PACKAGE_STORE', 'The supervisor cycle record is invalid.');
+  return record;
+}
+// The folders between .loop/scheduler and a cycle's own folder are checked
+// like the scheduler folder itself.
+export async function assertCycleDirectories(scheduler, cycle) {
+  if (cycle <= 1) return;
+  await assertRealDirectory(path.join(scheduler, 'cycles'), '.loop/scheduler/cycles');
+  await assertRealDirectory(cycleBase(scheduler, cycle), 'supervisor cycle directory');
+}
+
+export function storePaths(scheduler, cycle = 1) {
+  const dir = path.join(cycleBase(scheduler, cycle), 'packages');
   return { dir, file: path.join(dir, 'packages.json'), lock: path.join(dir, 'store.lock'), roots: path.join(scheduler, 'package-roots') };
 }
 
@@ -105,9 +126,11 @@ function validateStoredPackage(record, index) {
 
 export async function readStore(root) {
   const { scheduler } = await assertControlPath(root);
-  const paths = storePaths(scheduler);
+  const { cycle } = await readCycle(root, scheduler);
+  const paths = storePaths(scheduler, cycle);
   if (!await schedulerRecordExists(root, paths.file)) return { schema_version: 1, packages: [] };
   await assertRealDirectory(scheduler, '.loop/scheduler');
+  await assertCycleDirectories(scheduler, cycle);
   await assertRealDirectory(paths.dir, 'package store directory');
   const store = await readSchedulerRecord(root, paths.file);
   if (store.schema_version !== 1 || !Array.isArray(store.packages)) throw new ControlError('INVALID_PACKAGE_STORE', 'packages.json must be a version 1 record with a packages array');
@@ -169,9 +192,17 @@ export async function packageAdd(root, args = {}) {
     candidate = await resolveRoot(args.workspace_root);
   }
   await ensureRuntimeIgnore(root);
-  const paths = storePaths(scheduler);
+  const cycleRecord = await readCycle(root, scheduler);
+  const paths = storePaths(scheduler, cycleRecord.cycle);
   await fs.mkdir(paths.dir, { recursive: true });
-  await assertRealDirectory(scheduler, '.loop/scheduler'); await assertRealDirectory(paths.dir, '.loop/scheduler/packages');
+  await assertRealDirectory(scheduler, '.loop/scheduler'); await assertCycleDirectories(scheduler, cycleRecord.cycle); await assertRealDirectory(paths.dir, '.loop/scheduler/packages');
+  // A new cycle never restarts the budget of work a closed cycle left
+  // unfinished in the same workspace.
+  if (args.prepare !== true) {
+    const current = (await childReadiness(candidate)).work_item_id;
+    const earlier = cycleRecord.closed.flatMap(c => c.packages.map(x => ({ ...x, cycle: c.cycle }))).find(x => x.root === candidate && current && x.work_item_id === current);
+    if (earlier && !await workItemAcknowledged(candidate, current)) throw new ControlError('PACKAGE_CYCLE_REUSE', `work item ${current} in this workspace was left unfinished by closed cycle ${earlier.cycle}; hand it over or accept it there, or start a different work item`, { package_id: id, cycle: earlier.cycle });
+  }
   return withShortLock(paths.lock, 'package_add', async () => {
     const store = await readStore(root);
     const record = { schema_version: 1, package_id: id, title, root: candidate, prepared: args.prepare === true, shared_paths: sharedPaths, resources, depends_on: dependsOn, budget, max_retries: maxRetries, on_conflict: onConflict };
@@ -181,8 +212,8 @@ export async function packageAdd(root, args = {}) {
       if (existing.spec_digest !== specDigest) throw new ControlError('PACKAGE_EXISTS', `package ${id} is already registered with a different root, budget, dependencies or resources; a registered package is never widened in place`, { package_id: id });
       return { ok: true, idempotent: true, package: existing, child: await childReadiness(existing.root), started: false };
     }
-    const supervisorPointer = path.join(scheduler, 'supervisor', 'current.json');
-    if (await schedulerRecordExists(root, supervisorPointer)) throw new ControlError('PACKAGE_SET_FROZEN', 'This supervisor package set is frozen; adding packages cannot invalidate or reset an existing job.');
+    const supervisorPointer = path.join(cycleBase(scheduler, cycleRecord.cycle), 'supervisor', 'current.json');
+    if (await schedulerRecordExists(root, supervisorPointer)) throw new ControlError('PACKAGE_SET_FROZEN', 'This supervisor package set is frozen; adding packages cannot invalidate or reset an existing job. When that job is cancelled or completed, close its cycle (supervisor_close_cycle) to register a new package set.');
     if (store.packages.length >= MAX_PACKAGES) throw new ControlError('PACKAGE_LIMIT', `at most ${MAX_PACKAGES} packages can be registered`);
     // A dependency has to exist already, so the graph can never have a cycle.
     const missing = dependsOn.filter((dep) => !store.packages.some((item) => item.package_id === dep));
