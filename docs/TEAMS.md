@@ -124,6 +124,15 @@ invalid signature or missing private record blocks. Recovery of short scheduler
 locks requires a known dead owner; live or unknown owners are never displaced.
 This does not remove locks belonging to the child engine.
 
+### When a package is blocked
+
+A package stops when its run is BLOCKED. Answer its open blockers with
+`package_control answer` (`blocker_index` counts from 1), then call
+`supervisor_resume`. A package whose blockers are all answered is launched
+again with `resume`; one with an open blocker stays blocked. A failed setup
+probe keeps the last 4,000 characters of its output in the setup evidence,
+so the reason is visible without rerunning it.
+
 ### When a finished worker looks interrupted
 
 A worker can finish between two status checks. The supervisor checks its

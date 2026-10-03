@@ -262,7 +262,7 @@ export async function workItemAcknowledged(childRoot, workItemId) {
 // approved, activated or written. Every field comes from a runner-owned or
 // signed record in that root; nothing a worker wrote in prose is used.
 export async function childReadiness(rootPath) {
-  const out = { root: rootPath, initialized: false, activation: 'NEEDS_SETUP', activation_digest: null, host: null, review_host: null, host_config_digest: null, models: null, timeouts: null, authorization: 'NONE', authorization_expires_at: null, authorization_budget: null, work_item_id: null, run_status: null, phase: null, gates: null, round: null, held: false, quarantined: false, handover_ready: false, acknowledged: false, problems: [], next: [] };
+  const out = { root: rootPath, initialized: false, activation: 'NEEDS_SETUP', activation_digest: null, host: null, review_host: null, host_config_digest: null, models: null, timeouts: null, authorization: 'NONE', authorization_expires_at: null, authorization_budget: null, work_item_id: null, run_status: null, phase: null, gates: null, round: null, held: false, quarantined: false, handover_ready: false, acknowledged: false, open_blockers: 0, problems: [], next: [] };
   let root;
   try { root = await resolveRoot(rootPath); await assertControlPath(root); }
   catch (error) { return { ...out, activation: 'UNAVAILABLE', problems: [{ code: error.code || 'CHILD_ROOT_UNAVAILABLE', message: error.message }] }; }
@@ -288,7 +288,8 @@ export async function childReadiness(rootPath) {
   if (!state) { out.activation = 'INVALID'; out.problems.push({ code: 'INVALID_STATE_FILE', message: 'the package state cannot be read' }); return out; }
   out.initialized = true;
   out.work_item_id = typeof state.work_item_id === 'string' ? state.work_item_id : null;
-  out.run_status = state.run_status ?? null; out.phase = state.phase ?? null; out.round = Number.isInteger(state.round) ? state.round : null;
+  out.run_status = state.run_status ?? null; out.phase = state.phase ?? null;
+  out.open_blockers = (await fs.readFile(path.join(loop, 'blockers.md'), 'utf8').catch(() => '')).split('\n').filter((line) => line.includes('- [ ]')).length; out.round = Number.isInteger(state.round) ? state.round : null;
   out.gates = PHASES.map((phase) => ({ phase, status: state.gates?.[phase]?.status ?? 'PENDING', evidence_ids: Array.isArray(state.gates?.[phase]?.evidence_ids) ? state.gates[phase].evidence_ids.map(String) : [] }));
   out.handover_ready = state.run_status === 'WAITING_FOR_HUMAN' && state.gates?.HANDOVER?.status === 'PASSED';
   out.acknowledged = await workItemAcknowledged(root, out.work_item_id);
@@ -336,9 +337,12 @@ export function launchIssues(readiness) {
   if (readiness.authorization === 'NONE' || readiness.authorization === 'PAUSED') add('pending', 'CHILD_AUTHORIZATION_REQUIRED', `${item} in ${where} has no READY authorization`, `a person authorizes ${item} in ${where} (AUTHORIZE on that root's confirmation page or terminal)`);
   if (readiness.authorization === 'EXPIRED') add('pending', 'CHILD_AUTHORIZATION_EXPIRED', `the authorization of ${item} in ${where} expired at ${readiness.authorization_expires_at}`, `a person authorizes ${item} in ${where} again`);
   if (readiness.authorization === 'INVALID') add('blocked', 'CHILD_AUTHORIZATION_INVALID', `the authorization record of ${item} in ${where} does not validate`, `ask a person to issue a valid authorization in ${where}`);
-  if (readiness.run_status === 'BLOCKED') add('pending', 'CHILD_BLOCKED', `${item} in ${where} is BLOCKED`, `read the evidence and answer the blockers of ${where}, then resume the supervisor`);
+  // A blocked child whose blockers a person (or a labelled assistant) has all
+  // answered resumes like a paused one; open blockers still stop it.
+  if (readiness.run_status === 'BLOCKED' && readiness.open_blockers > 0) add('pending', 'CHILD_BLOCKED', `${item} in ${where} is BLOCKED`, `read the evidence and answer the blockers of ${where}, then resume the supervisor`);
   else if (readiness.run_status === 'CANCELLED') add('pending', 'CHILD_CANCELLED', `${item} in ${where} was cancelled`, `acknowledge the cancellation in ${where} and prepare a new work item`);
   else if (readiness.run_status === 'COMPLETED') add('pending', 'CHILD_COMPLETED_UNACKNOWLEDGED', `${item} in ${where} is COMPLETED without a recorded handover`, `prepare and authorize the next work item in ${where}`);
+  else if (readiness.run_status === 'BLOCKED') { /* every blocker answered: resumable */ }
   else if (!['PAUSED', 'RUNNING'].includes(readiness.run_status) && !handoverNodePending({ run_status: readiness.run_status, phase: readiness.phase, gates: Object.fromEntries((readiness.gates || []).map((gate) => [gate.phase, gate])) })) add('pending', 'CHILD_WAITING', `${item} in ${where} is ${readiness.run_status}`, `look at ${where}`);
   return issues;
 }

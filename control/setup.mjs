@@ -354,7 +354,10 @@ async function activateLocked(root) {
     const isolatedRoot = await copyDisposableProject(root, temp);
     for (const command of current.adapter.commands) {
       const cwd = await assertProbeBoundary(temp, command); const result = await runBounded(command.argv, cwd, command.timeout_seconds, current.adapter.environment.allow_names, isolatedRoot);
-      evidence.positive.push({ id: command.id, phase: command.phase, argv: command.argv, cwd: command.cwd, exit_code: result.exit_code, timed_out: result.timed_out, stdout_sha256: sha256(result.stdout), stderr_sha256: sha256(result.stderr), passed: result.exit_code === 0 });
+      evidence.positive.push({ id: command.id, phase: command.phase, argv: command.argv, cwd: command.cwd, exit_code: result.exit_code, timed_out: result.timed_out, stdout_sha256: sha256(result.stdout), stderr_sha256: sha256(result.stderr), passed: result.exit_code === 0,
+        // A failed probe keeps the end of its output, so a person can see why
+        // without rerunning it; a passing one keeps only the digests.
+        ...(result.exit_code !== 0 ? { stdout_tail: result.stdout.slice(-4000), stderr_tail: result.stderr.slice(-4000) } : {}) });
       if (result.exit_code !== 0) throw new ControlError('POSITIVE_PROBE_FAILED', `positive probe failed: ${command.id}`, { command_id: command.id, exit_code: result.exit_code });
     }
     const negative = plan.negative_control; const negativeCwd = await assertProbeBoundary(temp, negative); const result = await runBounded(negative.argv, negativeCwd, negative.timeout_seconds, current.adapter.environment.allow_names, isolatedRoot);

@@ -352,3 +352,10 @@ test('official recovery verifies terminal bindings and locks, retains counters a
   assert.equal((await dispatch(workspace, 'status')).job.job_id, cj.job_id);
   await assert.rejects(() => reconcileInterruptedChild({ root: workspace }, flagged({ child_request_id: null })), e => e.code === 'CHILD_RECOVERY_REQUIRED');
 });
+
+test('a blocked child resumes once every blocker is answered; an open blocker still stops it', async () => {
+  const { launchIssues } = await import('../control/package-store.mjs');
+  const ready = { root: '/tmp/x', activation: 'ACTIVE', initialized: true, host_config_digest: 'h', authorization: 'READY', work_item_id: 'WI-1', run_status: 'BLOCKED', problems: [], next: [] };
+  assert.deepEqual(launchIssues({ ...ready, open_blockers: 1 }).map(x => x.code), ['CHILD_BLOCKED']);
+  assert.deepEqual(launchIssues({ ...ready, open_blockers: 0 }), []);
+});

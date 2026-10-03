@@ -590,7 +590,8 @@ async function recoverAnswerQuarantine(root, loop, control, state) {
 
 export async function answerBlocker(root, args) {
   const { loop, control } = await assertControlPath(root); await assertNoEngineLock(root);
-  if ((args.blocker_id ? 1 : 0) + (args.blocker_index ? 1 : 0) !== 1) throw new ControlError('INVALID_INPUT', 'provide exactly one of blocker_id or blocker_index');
+  if ((args.blocker_id !== undefined ? 1 : 0) + (args.blocker_index !== undefined ? 1 : 0) !== 1) throw new ControlError('INVALID_INPUT', 'provide exactly one of blocker_id or blocker_index');
+  if (args.blocker_index !== undefined && (!Number.isInteger(args.blocker_index) || args.blocker_index < 1)) throw new ControlError('INVALID_INPUT', 'blocker_index counts open blockers from 1');
   stringValue(args.answer, 'answer', { max: 20000 }); const blockersFile = path.join(loop, 'blockers.md');
   const release = await acquireDirLock(path.join(loop, 'orchestrator.lock'), { operation: 'answer' });
   let answerId; let selected; let open; let recoveredQuarantine = false;

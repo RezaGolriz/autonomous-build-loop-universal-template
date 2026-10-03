@@ -558,7 +558,8 @@ export async function supervisorWorker(root, id, fence) {
             entry.status = 'LAUNCHING'; entry.child_job_id = null; entry.launch_sequence = (entry.launch_sequence ?? 0) + 1; entry.child_request_id = `${id}-${entry.id}-launch-${entry.launch_sequence}`;
             freshRequestId = entry.child_request_id;
             await persist();
-            const launched = await launchJob(pkg.root, child.run_status === 'PAUSED' ? 'start' : 'run',
+            const operation = child.run_status === 'PAUSED' ? 'start' : child.run_status === 'BLOCKED' ? 'resume' : 'run';
+            const launched = await launchJob(pkg.root, operation,
               { request_id: entry.child_request_id, max_nodes: 1 }, 'mcp-user');
             entry.child_job_id = launched.job.job_id; entry.child_nodes_counted = 0; entry.running = true; entry.status = 'RUNNING'; entry.tick_at = new Date().toISOString(); entry.next_action = 'One runner-owned node is executing.';
           } catch (error) {
