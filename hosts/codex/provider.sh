@@ -42,12 +42,14 @@ run_codex(){
   else provider_run_timed "$bin" "$@"
   fi
 }
+printf '%s' "$prompt" >"$tmp/prompt.txt"
+export PROVIDER_STDIN=$tmp/prompt.txt
 set +e
 if "$bin" exec --help 2>&1 | grep -q -- '--output-schema'; then
-  run_codex exec "${mode[@]}" --skip-git-repo-check --output-schema "$tmp/schema.json" -o "$tmp/last.txt" "$prompt" 1>&2
+  run_codex exec "${mode[@]}" --skip-git-repo-check --output-schema "$tmp/schema.json" -o "$tmp/last.txt" - 1>&2
   rc=$?
 else
-  run_codex exec "${mode[@]}" --skip-git-repo-check -o "$tmp/last.txt" "$prompt" 1>&2
+  run_codex exec "${mode[@]}" --skip-git-repo-check -o "$tmp/last.txt" - 1>&2
   rc=$?
 fi
 set -e

@@ -24,7 +24,15 @@ provider_run_timed(){
   else timeout=${PROVIDER_TIMEOUT:-900}; fi
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo 'PROVIDER_TIMEOUT must be a positive integer' >&2; return 64; }
   command -v perl >/dev/null 2>&1 || { echo 'Perl is required for provider process isolation' >&2; return 69; }
-  perl -MPOSIX -e 'POSIX::setpgid(0,0); exec @ARGV or exit 127' "$@" & provider_pid=$!
+  # PROVIDER_STDIN names a file the provider reads its prompt from. Passing the
+  # prompt on stdin keeps it out of the process command line, where a worker's
+  # `pkill -f <pattern>` would otherwise match every parallel provider whose
+  # prompt mentions the same path.
+  if [ -n "${PROVIDER_STDIN:-}" ]; then
+    perl -MPOSIX -e 'POSIX::setpgid(0,0); exec @ARGV or exit 127' "$@" <"$PROVIDER_STDIN" & provider_pid=$!
+  else
+    perl -MPOSIX -e 'POSIX::setpgid(0,0); exec @ARGV or exit 127' "$@" </dev/null & provider_pid=$!
+  fi
   ticks=$((timeout*10)); elapsed=0
   while kill -0 "$provider_pid" 2>/dev/null && [ "$elapsed" -lt "$ticks" ]; do
     sleep 0.1

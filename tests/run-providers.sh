@@ -19,6 +19,7 @@ jq -n '{phase:"REVIEW",prompt:"review exact diff",run_id:"run-1",work_item_id:"T
 printf '%s\n' '#!/usr/bin/env bash' \
   'if [ "${1:-}" = --help ]; then echo "--json-schema"; exit 0; fi' \
   'printf "%s\n" "$@" > "$FAKE_ARGS"' \
+  'cat > "$FAKE_ARGS.stdin"' \
   'if [ "$LOOP_PHASE" = REVIEW ]; then' \
   '  jq -nc '\''{is_error:false,structured_output:{schema_version:1,verdict_id:"verdict-1",run_id:"run-1",work_item_id:"TEST-1",phase:"REVIEW",gate_id:"REVIEW",nonce:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",result:"PASS",reviewer:"fake-claude",independent:true,revision:"rev-1",captured_at:"2026-09-06T00:00:00Z",evidence_refs:["evidence-1"],findings:[]}}'\''' \
   'elif [ "$LOOP_PHASE" = SCOUT ]; then' \
@@ -31,6 +32,8 @@ jq -e '.status=="DONE"' "$tmp/out.json" >/dev/null || bad 'Claude structured exe
 grep -Fx -- '--json-schema' "$tmp/claude-exec.args" >/dev/null || bad 'Claude schema flag missing'
 grep -Fx -- '--permission-mode' "$tmp/claude-exec.args" >/dev/null || bad 'Claude permission mode missing'
 grep -Fx -- 'fable' "$tmp/claude-exec.args" >/dev/null || bad 'Claude model override missing'
+grep -F 'implement bounded change' "$tmp/claude-exec.args" >/dev/null && bad 'Claude prompt must not appear on the command line'
+grep -F 'implement bounded change' "$tmp/claude-exec.args.stdin" >/dev/null || bad 'Claude prompt must arrive on stdin'
 ok 'Claude uses native structured output for mutable nodes'
 
 FAKE_ARGS="$tmp/claude-phase.args" CLAUDE_BIN="$tmp/fake-claude" CLAUDE_MODEL=fable CLAUDE_MODEL_EXECUTE=sonnet CLAUDE_MODEL_REVIEW=opus LOOP_PHASE=EXECUTE "$claude_provider" < "$tmp/execute.json" > "$tmp/out.json"

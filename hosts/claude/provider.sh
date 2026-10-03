@@ -43,12 +43,14 @@ run_claude(){
   else provider_run_timed "$bin" "$@"
   fi
 }
+printf '%s' "$prompt" >"$tmp/prompt.txt"
+export PROVIDER_STDIN=$tmp/prompt.txt
 set +e
 if "$bin" --help 2>&1 | grep -q -- '--json-schema'; then
-  run_claude -p "$prompt" --output-format json --json-schema "$(jq -c . "$tmp/schema.json")" "${access[@]}" >"$tmp/cli.json"
+  run_claude -p --output-format json --json-schema "$(jq -c . "$tmp/schema.json")" "${access[@]}" >"$tmp/cli.json"
   rc=$?
 else
-  run_claude -p "$prompt" --output-format json "${access[@]}" >"$tmp/cli.json"
+  run_claude -p --output-format json "${access[@]}" >"$tmp/cli.json"
   rc=$?
 fi
 set -e
